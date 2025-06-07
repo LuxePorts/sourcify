@@ -959,6 +959,37 @@
     "redFlags": ["reusedChainId"]
   },
   {
+    "name": "LuxePorts Mainnet",
+    "chain": "LuxePorts",
+    "icon": "lxp",
+    "rpc": [
+      "https://rpc.luxeports.com"
+    ],
+    "faucets": [],
+    "nativeCurrency": {
+      "name": "LuxePorts",
+      "symbol": "LXP",
+      "decimals": 18
+    },
+    "explorers": [
+      {
+        "name": "LXPScan",
+        "url": "https://lxpscan.com",
+        "standard": "EIP3091"
+      }
+    ],
+    "infoURL": "https://luxeports.com",
+    "shortName": "lxp",
+    "chainId": 1122,
+    "networkId": 1122,
+    "features": [
+      { "name": "EIP155" }
+    ],
+    "contracts": {
+      "metadata": "block"
+    }
+  },  
+  {
     "name": "Darwinia Pangolin Testnet",
     "chain": "pangolin",
     "rpc": ["https://pangolin-rpc.darwinia.network"],

@@ -1784,6 +1784,13 @@ describe("Test Supported Chains", function () {
     "shared/",
   );
 
+//// LuxePorts MainNet
+  verifyContract(
+    "0x5827317D75D53E7a7901657307209bC684B8EcDc",
+    "1122",
+    "LuxePorts MainNet",
+    "shared/",
+  );
   // Bitrock Testnet
   verifyContract(
     "0x3b89e156B7835c02a7C60aC93a64A3a785727b5B",
@@ -1847,6 +1854,7 @@ describe("Test Supported Chains", function () {
     "Etherlink",
     "shared/",
   );
+
 
   // Etherlink Testnet
   verifyContract(
