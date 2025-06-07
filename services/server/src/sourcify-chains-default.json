@@ -1881,6 +1881,15 @@
       }
     }
   },
+  "1122": {
+  "sourcifyName": "LuxePorts Mainnet",
+  "supported": true,
+  "fetchContractCreationTxUsing": {
+    "etherscanApi": {
+      "url": "https://lxpscan.com/"
+    }
+  }
+},
   "648": {
     "sourcifyName": "Endurance Smart Chain Mainnet",
     "supported": true,
