@@ -1,5 +1,6 @@
 // Logger exports
-import { setLogger, setLevel, ILogger, getLevel } from './logger';
+import type { ILogger } from './logger';
+import { setLogger, setLevel, getLevel } from './logger';
 export const setLibSourcifyLogger = setLogger;
 export const setLibSourcifyLoggerLevel = setLevel;
 export const getLibSourcifyLoggerLevel = getLevel;
@@ -9,11 +10,20 @@ export type ILibSourcifyLogger = ILogger;
 export * from './Compilation/AbstractCompilation';
 export * from './Compilation/SolidityCompilation';
 export * from './Compilation/VyperCompilation';
+export * from './Compilation/YulCompilation';
+export * from './Compilation/PreRunCompilation';
 export * from './Compilation/CompilationTypes';
 
 // Verification exports
 export * from './Verification/Verification';
 export * from './Verification/VerificationTypes';
+
+// Etherscan utils exports
+export * from './utils/etherscan/EtherscanTypes';
+import * as etherscanUtils from './utils/etherscan/etherscan-util';
+export const EtherscanUtils = {
+  ...etherscanUtils,
+};
 
 // Validation exports
 export * from './Validation/SolidityMetadataContract';
@@ -31,7 +41,7 @@ export * from './SourcifyChain/SourcifyChainTypes';
 export * from './SourcifyLibError';
 
 // Utils exports
-export * from './utils';
+export * from './utils/utils';
 
 // Export all compilers types
 export * from '@ethereum-sourcify/compilers-types';

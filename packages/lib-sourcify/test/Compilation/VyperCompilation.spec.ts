@@ -614,6 +614,9 @@ describe('VyperCompilation', () => {
 
     await compilation.compile();
 
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { outputSelection, ...settings } = compilation.jsonInput.settings;
+
     expect(compilation.metadata).to.deep.equal({
       compiler: { version: vyperVersion },
       language: 'Vyper',
@@ -636,7 +639,7 @@ describe('VyperCompilation', () => {
         userdoc: {},
       },
       settings: {
-        ...compilation.jsonInput.settings,
+        ...settings,
         compilationTarget: { [contractFileName]: contractName },
       },
       sources: {
@@ -646,5 +649,45 @@ describe('VyperCompilation', () => {
       },
       version: 1,
     });
+  });
+
+  it('should clean compiler version with v prefix', () => {
+    const contractPath = path.join(
+      __dirname,
+      '..',
+      'sources',
+      'Vyper',
+      'testcontract',
+    );
+    const contractFileName = 'test.vy';
+    const contractContent = fs.readFileSync(
+      path.join(contractPath, contractFileName),
+      'utf8',
+    );
+
+    const compilation = new VyperCompilation(
+      vyperCompiler,
+      'v0.3.10+commit.91361694',
+      {
+        language: 'Vyper',
+        sources: {
+          [contractFileName]: {
+            content: contractContent,
+          },
+        },
+        settings: {
+          evmVersion: 'istanbul',
+          outputSelection: {
+            '*': ['evm.bytecode'],
+          },
+        },
+      },
+      {
+        name: contractFileName.split('.')[0],
+        path: contractFileName,
+      },
+    );
+
+    expect(compilation.compilerVersion).to.equal('0.3.10+commit.91361694');
   });
 });

@@ -1,7 +1,7 @@
-import { Pool, PoolClient, QueryResult } from "pg";
-import { Bytes } from "../../types";
-import {
-  bytesFromString,
+import type { PoolClient, QueryResult } from "pg";
+import { Pool } from "pg";
+import type { Bytes, BytesKeccak } from "../../types";
+import type {
   GetSourcifyMatchByChainAddressResult,
   GetSourcifyMatchByChainAddressWithPropertiesResult,
   GetSourcifyMatchesByChainResult,
@@ -9,13 +9,21 @@ import {
   GetVerifiedContractByChainAndAddressResult,
   GetVerificationJobsByChainAndAddressResult,
   SourceInformation,
-  STORED_PROPERTIES_TO_SELECTORS,
   StoredProperties,
   Tables,
+  GetSourcifyMatchesAllChainsResult,
+  ExternalVerification,
+  CodePrefixMatchResult,
+} from "./database-util";
+import {
+  bytesFromString,
+  STORED_PROPERTIES_TO_SELECTORS,
 } from "./database-util";
 import { createHash } from "crypto";
 import { AuthTypes, Connector } from "@google-cloud/cloud-sql-connector";
 import logger from "../../../common/logger";
+import { ConflictError } from "../../../common/errors/ConflictError";
+import type { EtherscanVerifyApiIdentifiers } from "../storageServices/EtherscanVerifyApiService";
 
 export interface DatabaseOptions {
   googleCloudSql?: {
@@ -30,8 +38,12 @@ export interface DatabaseOptions {
     database: string;
     user: string;
     password: string;
+    ssl?: {
+      rejectUnauthorized: boolean;
+    };
   };
   schema?: string;
+  maxConnections?: number;
 }
 
 export class Database {
@@ -46,7 +58,10 @@ export class Database {
   private postgresDatabase?: string;
   private postgresUser?: string;
   private postgresPassword?: string;
-
+  private postgresSsl?: {
+    rejectUnauthorized: boolean;
+  };
+  private maxConnections?: number;
   constructor(options: DatabaseOptions) {
     this.googleCloudSqlInstanceName = options.googleCloudSql?.instanceName;
     this.googleCloudSqlUser = options.googleCloudSql?.user;
@@ -57,14 +72,20 @@ export class Database {
     this.postgresDatabase = options.postgres?.database;
     this.postgresUser = options.postgres?.user;
     this.postgresPassword = options.postgres?.password;
+    this.postgresSsl = options.postgres?.ssl;
     if (options.schema) {
       this.schema = options.schema;
     }
+    this.maxConnections = options.maxConnections;
   }
 
   get pool(): Pool {
     if (!this._pool) throw new Error("Pool not initialized!");
     return this._pool;
+  }
+
+  isPoolInitialized(): boolean {
+    return this._pool != undefined;
   }
 
   async initDatabasePool(identifier: string): Promise<boolean> {
@@ -85,8 +106,8 @@ export class Database {
         ...clientOpts,
         user: this.googleCloudSqlUser,
         database: this.googleCloudSqlDatabase,
-        max: 5,
         password: this.googleCloudSqlPassword,
+        max: this.maxConnections || 15,
       });
     } else if (this.postgresHost) {
       this._pool = new Pool({
@@ -95,7 +116,8 @@ export class Database {
         database: this.postgresDatabase,
         user: this.postgresUser,
         password: this.postgresPassword,
-        max: 5,
+        max: this.maxConnections || 15,
+        ssl: this.postgresSsl,
       });
     } else {
       throw new Error("Alliance Database is disabled");
@@ -176,6 +198,23 @@ ${
       (property) => STORED_PROPERTIES_TO_SELECTORS[property],
     );
 
+    const groupByClause =
+      properties.includes("sources") ||
+      properties.includes("std_json_input") ||
+      properties.includes("function_signatures") ||
+      properties.includes("event_signatures") ||
+      properties.includes("error_signatures")
+        ? `GROUP BY sourcify_matches.id,
+        verified_contracts.id,
+        compiled_contracts.id,
+        contract_deployments.id,
+        contracts.id,
+        onchain_runtime_code.code_hash,
+        onchain_creation_code.code_hash,
+        recompiled_runtime_code.code_hash,
+        recompiled_creation_code.code_hash`
+        : "";
+
     return await this.pool.query(
       `
         SELECT
@@ -193,22 +232,75 @@ ${
         LEFT JOIN ${this.schema}.code as recompiled_runtime_code ON recompiled_runtime_code.code_hash = compiled_contracts.runtime_code_hash
         LEFT JOIN ${this.schema}.code as recompiled_creation_code ON recompiled_creation_code.code_hash = compiled_contracts.creation_code_hash
 ${
-  properties.includes("sources") || properties.includes("std_json_input")
-    ? `JOIN ${this.schema}.compiled_contracts_sources ON compiled_contracts_sources.compilation_id = compiled_contracts.id
-      LEFT JOIN ${this.schema}.sources ON sources.source_hash = compiled_contracts_sources.source_hash
-      GROUP BY sourcify_matches.id, 
-        verified_contracts.id, 
-        compiled_contracts.id, 
-        contract_deployments.id,
-        contracts.id, 
-        onchain_runtime_code.code_hash, 
-        onchain_creation_code.code_hash,
-        recompiled_runtime_code.code_hash,
-        recompiled_creation_code.code_hash`
+  properties.includes("function_signatures") ||
+  properties.includes("event_signatures") ||
+  properties.includes("error_signatures")
+    ? `
+        LEFT JOIN ${this.schema}.compiled_contracts_signatures ON compiled_contracts_signatures.compilation_id = compiled_contracts.id
+        LEFT JOIN ${this.schema}.signatures ON signatures.signature_hash_32 = compiled_contracts_signatures.signature_hash_32
+      `
     : ""
 }
+${
+  properties.includes("sources") || properties.includes("std_json_input")
+    ? `
+        JOIN ${this.schema}.compiled_contracts_sources ON compiled_contracts_sources.compilation_id = compiled_contracts.id
+        LEFT JOIN ${this.schema}.sources ON sources.source_hash = compiled_contracts_sources.source_hash
+      `
+    : ""
+}
+        ${groupByClause}
         `,
       [chain, address],
+    );
+  }
+
+  async getVerifiedContractsByRuntimeCodePrefix(
+    runtimeBytecode: Buffer,
+    limit: number = 20,
+  ): Promise<QueryResult<CodePrefixMatchResult>> {
+    return await this.pool.query(
+      `
+        SELECT
+          compiled_contracts.id as compilation_id,
+          contract_deployments.chain_id,
+          concat('0x', encode(contract_deployments.address, 'hex')) as address
+        FROM ${this.schema}.code code
+        JOIN ${this.schema}.compiled_contracts ON compiled_contracts.runtime_code_hash = code.code_hash
+        JOIN ${this.schema}.verified_contracts ON verified_contracts.compilation_id = compiled_contracts.id
+        JOIN ${this.schema}.sourcify_matches ON sourcify_matches.verified_contract_id = verified_contracts.id
+        JOIN ${this.schema}.contract_deployments ON verified_contracts.deployment_id = contract_deployments.id
+        WHERE substring(code.code FROM 1 FOR 75) = substring($1::bytea FROM 1 FOR 75)
+        LIMIT $2
+      `,
+      [runtimeBytecode, limit],
+    );
+  }
+
+  /**
+   * Query for looking for all sourcify matches for a given address on all chains.
+   * This is used for the /v2/contract/allChains/{address} endpoint.
+   */
+  async getSourcifyMatchesAllChains(
+    address: Bytes,
+  ): Promise<QueryResult<GetSourcifyMatchesAllChainsResult>> {
+    const selectors = [
+      STORED_PROPERTIES_TO_SELECTORS["id"],
+      STORED_PROPERTIES_TO_SELECTORS["creation_match"],
+      STORED_PROPERTIES_TO_SELECTORS["runtime_match"],
+      STORED_PROPERTIES_TO_SELECTORS["address"],
+      STORED_PROPERTIES_TO_SELECTORS["chain_id"],
+      STORED_PROPERTIES_TO_SELECTORS["verified_at"],
+    ];
+    return await this.pool.query(
+      `SELECT 
+        ${selectors.join(", ")}
+      FROM ${this.schema}.contract_deployments
+      JOIN ${this.schema}.verified_contracts ON verified_contracts.deployment_id = contract_deployments.id
+      JOIN ${this.schema}.sourcify_matches ON sourcify_matches.verified_contract_id = verified_contracts.id
+      WHERE contract_deployments.address = $1
+      `,
+      [address],
     );
   }
 
@@ -235,8 +327,9 @@ ${
   async getVerifiedContractByChainAndAddress(
     chain: number,
     address: Bytes,
+    poolClient?: PoolClient,
   ): Promise<QueryResult<GetVerifiedContractByChainAndAddressResult>> {
-    return await this.pool.query(
+    return await (poolClient || this.pool).query(
       `
         SELECT
           verified_contracts.*,
@@ -252,13 +345,26 @@ ${
     );
   }
 
-  async insertSourcifyMatch({
-    verified_contract_id,
-    runtime_match,
-    creation_match,
-    metadata,
-  }: Omit<Tables.SourcifyMatch, "created_at" | "id">) {
-    await this.pool.query(
+  async getCompilationIdForVerifiedContract(
+    verifiedContractId: Tables.VerifiedContract["id"],
+    poolClient?: PoolClient,
+  ): Promise<QueryResult<Pick<Tables.VerifiedContract, "compilation_id">>> {
+    return await (poolClient || this.pool).query(
+      `SELECT compilation_id FROM verified_contracts WHERE id = $1`,
+      [verifiedContractId],
+    );
+  }
+
+  async insertSourcifyMatch(
+    {
+      verified_contract_id,
+      runtime_match,
+      creation_match,
+      metadata,
+    }: Omit<Tables.SourcifyMatch, "created_at" | "id">,
+    poolClient?: PoolClient,
+  ) {
+    await (poolClient || this.pool).query(
       `INSERT INTO ${this.schema}.sourcify_matches (
         verified_contract_id,
         creation_match,
@@ -280,8 +386,9 @@ ${
       metadata,
     }: Omit<Tables.SourcifyMatch, "created_at" | "id">,
     oldVerifiedContractId: string,
+    poolClient?: PoolClient,
   ) {
-    await this.pool.query(
+    await (poolClient || this.pool).query(
       `UPDATE ${this.schema}.sourcify_matches SET 
       verified_contract_id = $1,
       creation_match=$2,
@@ -420,7 +527,10 @@ ${
     { bytecode_hash_keccak, bytecode }: Omit<Tables.Code, "bytecode_hash">,
   ): Promise<QueryResult<Pick<Tables.Code, "bytecode_hash">>> {
     let codeInsertResult = await poolClient.query(
-      `INSERT INTO ${this.schema}.code (code_hash, code, code_hash_keccak) VALUES (digest($1::bytea, 'sha256'), $1::bytea, $2) ON CONFLICT (code_hash) DO NOTHING RETURNING code_hash as bytecode_hash`,
+      `INSERT INTO ${this.schema}.code (code_hash, code, code_hash_keccak)
+      VALUES (digest($1::bytea, 'sha256'), $1::bytea, $2)
+      ON CONFLICT ON CONSTRAINT code_pkey DO NOTHING
+      RETURNING code_hash as bytecode_hash`,
       [bytecode, bytecode_hash_keccak],
     );
 
@@ -445,7 +555,10 @@ ${
     }: Omit<Tables.Contract, "id">,
   ): Promise<QueryResult<Pick<Tables.Contract, "id">>> {
     let contractInsertResult = await poolClient.query(
-      `INSERT INTO ${this.schema}.contracts (creation_code_hash, runtime_code_hash) VALUES ($1, $2) ON CONFLICT (creation_code_hash, runtime_code_hash) DO NOTHING RETURNING *`,
+      `INSERT INTO ${this.schema}.contracts (creation_code_hash, runtime_code_hash)
+      VALUES ($1, $2)
+      ON CONFLICT ON CONSTRAINT contracts_pseudo_pkey DO NOTHING
+      RETURNING *`,
       [creation_bytecode_hash, runtime_bytecode_hash],
     );
 
@@ -485,7 +598,10 @@ ${
         block_number,
         transaction_index,
         deployer
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT ON CONSTRAINT contract_deployments_pseudo_pkey DO NOTHING RETURNING *`,
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      ON CONFLICT ON CONSTRAINT contract_deployments_pseudo_pkey DO NOTHING
+      RETURNING *`,
       [
         chain_id,
         address,
@@ -545,7 +661,10 @@ ${
         runtime_code_hash,
         creation_code_artifacts,
         runtime_code_artifacts
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) ON CONFLICT (compiler, language, creation_code_hash, runtime_code_hash) DO NOTHING RETURNING *
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      ON CONFLICT ON CONSTRAINT compiled_contracts_pseudo_pkey
+      DO NOTHING RETURNING *
     `,
       [
         compiler,
@@ -602,11 +721,14 @@ ${
       sourceCodesQueryValues.push(sourceCode.content);
       sourceCodesQueryValues.push(sourceCode.source_hash_keccak);
     });
-    const sourceCodesQuery = `INSERT INTO ${this.schema}.sources (
-    source_hash,
-    content,
-    source_hash_keccak
-  ) VALUES ${sourceCodesQueryIndexes.join(",")} ON CONFLICT (source_hash) DO NOTHING RETURNING *`;
+    const sourceCodesQuery = `
+      INSERT INTO ${this.schema}.sources (
+        source_hash,
+        content,
+        source_hash_keccak
+      ) VALUES ${sourceCodesQueryIndexes.join(",")}
+      ON CONFLICT ON CONSTRAINT sources_pkey 
+      DO NOTHING RETURNING *`;
     const sourceCodesQueryResult = await poolClient.query(
       sourceCodesQuery,
       sourceCodesQueryValues,
@@ -668,14 +790,79 @@ ${
       },
     );
 
-    const compiledContractsSourcesQuery = `INSERT INTO compiled_contracts_sources (
-    compilation_id,
-    source_hash,
-    path
-  ) VALUES ${compiledContractsSourcesQueryIndexes.join(",")} ON CONFLICT (compilation_id, path) DO NOTHING`;
+    const compiledContractsSourcesQuery = `
+      INSERT INTO compiled_contracts_sources (
+        compilation_id,
+        source_hash,
+        path
+      )
+      VALUES ${compiledContractsSourcesQueryIndexes.join(",")}
+      ON CONFLICT ON CONSTRAINT compiled_contracts_sources_pseudo_pkey DO NOTHING`;
     await poolClient.query(
       compiledContractsSourcesQuery,
       compiledContractsSourcesQueryValues,
+    );
+  }
+
+  async insertSignatures(
+    signatures: Omit<Tables.Signatures, "signature_hash_4">[],
+    poolClient?: PoolClient,
+  ): Promise<void> {
+    if (signatures.length === 0) {
+      return;
+    }
+
+    const valueIndexes: string[] = [];
+    const queryValues: (BytesKeccak | string)[] = [];
+
+    signatures.forEach((_, index) => {
+      const baseIndex = index * 2 + 1;
+      valueIndexes.push(`($${baseIndex}, $${baseIndex + 1})`);
+    });
+
+    signatures.forEach(({ signature_hash_32, signature }) => {
+      queryValues.push(signature_hash_32, signature);
+    });
+
+    await (poolClient || this.pool).query(
+      `INSERT INTO ${this.schema}.signatures (signature_hash_32, signature)
+       VALUES ${valueIndexes.join(", ")}
+       ON CONFLICT ON CONSTRAINT signatures_pkey DO NOTHING`,
+      queryValues,
+    );
+  }
+
+  async insertCompiledContractSignatures(
+    compilation_id: string,
+    signatures: Omit<
+      Tables.CompiledContractsSignatures,
+      "id" | "compilation_id"
+    >[],
+    poolClient?: PoolClient,
+  ): Promise<void> {
+    if (signatures.length === 0) {
+      return;
+    }
+
+    const valueIndexes: string[] = [];
+    const queryValues: (BytesKeccak | string)[] = [];
+
+    signatures.forEach((_, index) => {
+      const baseIndex = index * 3 + 1;
+      valueIndexes.push(
+        `($${baseIndex}, $${baseIndex + 1}, $${baseIndex + 2})`,
+      );
+    });
+
+    signatures.forEach(({ signature_hash_32, signature_type }) => {
+      queryValues.push(compilation_id, signature_hash_32, signature_type);
+    });
+
+    await (poolClient || this.pool).query(
+      `INSERT INTO ${this.schema}.compiled_contracts_signatures (compilation_id, signature_hash_32, signature_type)
+       VALUES ${valueIndexes.join(", ")}
+       ON CONFLICT ON CONSTRAINT compiled_contracts_signatures_pseudo_pkey DO NOTHING`,
+      queryValues,
     );
   }
 
@@ -694,7 +881,7 @@ ${
       creation_metadata_match,
     }: Omit<Tables.VerifiedContract, "id">,
   ): Promise<QueryResult<Pick<Tables.VerifiedContract, "id">>> {
-    let verifiedContractsInsertResult = await poolClient.query(
+    const result = await poolClient.query(
       `INSERT INTO ${this.schema}.verified_contracts (
         compilation_id,
         deployment_id,
@@ -706,7 +893,9 @@ ${
         creation_match,
         runtime_metadata_match,
         creation_metadata_match
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       ON CONFLICT ON CONSTRAINT verified_contracts_pseudo_pkey DO NOTHING 
+       RETURNING *`,
       [
         compilation_id,
         deployment_id,
@@ -727,51 +916,14 @@ ${
         creation_metadata_match,
       ],
     );
-    if (verifiedContractsInsertResult.rows.length === 0) {
-      verifiedContractsInsertResult = await poolClient.query(
-        `
-        SELECT
-          id
-        FROM ${this.schema}.verified_contracts
-        WHERE 1=1
-          AND compilation_id = $1
-          AND deployment_id = $2
-        `,
-        [compilation_id, deployment_id],
+
+    if (result.rowCount === 0) {
+      throw new ConflictError(
+        "A verified contract already exist for your compilation and deployment",
       );
     }
-    return verifiedContractsInsertResult;
-  }
 
-  async updateContractDeployment(
-    poolClient: PoolClient,
-    {
-      id,
-      transaction_hash,
-      block_number,
-      transaction_index,
-      deployer,
-      contract_id,
-    }: Omit<Tables.ContractDeployment, "chain_id" | "address">,
-  ) {
-    return await poolClient.query(
-      `UPDATE ${this.schema}.contract_deployments 
-       SET 
-         transaction_hash = $2,
-         block_number = $3,
-         transaction_index = $4,
-         deployer = $5,
-         contract_id = $6
-       WHERE id = $1`,
-      [
-        id,
-        transaction_hash,
-        block_number,
-        transaction_index,
-        deployer,
-        contract_id,
-      ],
-    );
+    return result;
   }
 
   async getVerificationJobById(
@@ -789,6 +941,7 @@ ${
       verification_jobs.error_id,
       verification_jobs.error_data,
       verification_jobs.compilation_time,
+      verification_jobs.external_verification,
       nullif(concat('0x',encode(verification_jobs_ephemeral.recompiled_creation_code, 'hex')), '0x') as recompiled_creation_code,
       nullif(concat('0x',encode(verification_jobs_ephemeral.recompiled_runtime_code, 'hex')), '0x') as recompiled_runtime_code,
       nullif(concat('0x',encode(verification_jobs_ephemeral.onchain_creation_code, 'hex')), '0x') as onchain_creation_code,
@@ -852,25 +1005,28 @@ ${
     );
   }
 
-  async updateVerificationJob({
-    id,
-    completed_at,
-    verified_contract_id,
-    compilation_time,
-    error_code,
-    error_id,
-    error_data,
-  }: Pick<
-    Tables.VerificationJob,
-    | "id"
-    | "completed_at"
-    | "verified_contract_id"
-    | "compilation_time"
-    | "error_code"
-    | "error_id"
-    | "error_data"
-  >): Promise<void> {
-    await this.pool.query(
+  async updateVerificationJob(
+    {
+      id,
+      completed_at,
+      verified_contract_id,
+      compilation_time,
+      error_code,
+      error_id,
+      error_data,
+    }: Pick<
+      Tables.VerificationJob,
+      | "id"
+      | "completed_at"
+      | "verified_contract_id"
+      | "compilation_time"
+      | "error_code"
+      | "error_id"
+      | "error_data"
+    >,
+    poolClient?: PoolClient,
+  ): Promise<void> {
+    await (poolClient || this.pool).query(
       `UPDATE ${this.schema}.verification_jobs 
       SET 
         completed_at = $2,
@@ -890,6 +1046,47 @@ ${
         error_data,
       ],
     );
+  }
+
+  async upsertExternalVerification(
+    verificationJobId: Tables.VerificationJob["id"],
+    verifierIdentifier: EtherscanVerifyApiIdentifiers,
+    data: ExternalVerification,
+    poolClient?: PoolClient,
+  ): Promise<void> {
+    const payload: {
+      verificationId?: string;
+      error?: string;
+    } = {};
+
+    if (data.verificationId) {
+      payload.verificationId = data.verificationId;
+    }
+    if (data.error) {
+      payload.error = data.error;
+    }
+
+    if (Object.keys(payload).length === 0) {
+      return;
+    }
+
+    const result = await (poolClient || this.pool).query(
+      `UPDATE ${this.schema}.verification_jobs
+       SET external_verification = jsonb_set(
+         COALESCE(external_verification::jsonb, '{}'::jsonb),
+         ARRAY[$2::text],
+         $3::jsonb,
+         true
+       )
+       WHERE id = $1`,
+      [verificationJobId, verifierIdentifier, JSON.stringify(payload)],
+    );
+
+    if (result.rowCount === 0) {
+      throw new Error(
+        `Verification job ${verificationJobId} not found while updating external verification`,
+      );
+    }
   }
 
   async insertVerificationJobEphemeral({
@@ -918,5 +1115,107 @@ ${
         creation_transaction_hash,
       ],
     );
+  }
+
+  async deleteMatch(
+    poolClient: PoolClient,
+    chainId: number | string,
+    address: string,
+  ): Promise<void> {
+    // Safely deletes an existing sourcify match together with all dangling linked rows.
+    // If any of the rows are still referenced elsewhere, the FK constraints will abort the
+    // transaction and propagate an error, allowing the caller to handle it.
+
+    const addressBytes = bytesFromString(address)!;
+
+    // 1. Fetch all ids / hashes we may need later in the cleanup
+    const { rows } = await poolClient.query(
+      `
+        SELECT
+          vc.id  AS verified_contract_id,
+          vc.compilation_id,
+          vc.deployment_id,
+          cd.contract_id,
+          ctr.creation_code_hash  AS contract_creation_code_hash,
+          ctr.runtime_code_hash   AS contract_runtime_code_hash,
+          cc.creation_code_hash   AS compilation_creation_code_hash,
+          cc.runtime_code_hash    AS compilation_runtime_code_hash
+        FROM ${this.schema}.verified_contracts vc
+        JOIN ${this.schema}.sourcify_matches sm ON sm.verified_contract_id = vc.id
+        JOIN ${this.schema}.contract_deployments cd ON cd.id = vc.deployment_id
+        JOIN ${this.schema}.contracts ctr          ON ctr.id = cd.contract_id
+        JOIN ${this.schema}.compiled_contracts cc  ON cc.id = vc.compilation_id
+        WHERE cd.chain_id = $1
+          AND cd.address   = $2
+        LIMIT 1;
+        `,
+      [chainId, addressBytes],
+    );
+
+    if (rows.length === 0) {
+      throw new Error("No existing verified contract found to delete");
+    }
+
+    const info = rows[0];
+
+    // 2. Child-first deletions relying on FK safety
+    await poolClient.query(
+      `DELETE FROM ${this.schema}.sourcify_matches WHERE verified_contract_id = $1`,
+      [info.verified_contract_id],
+    );
+    await poolClient.query(
+      `UPDATE ${this.schema}.verification_jobs SET verified_contract_id=NULL WHERE verified_contract_id = $1`,
+      [info.verified_contract_id],
+    );
+    await poolClient.query(
+      `DELETE FROM ${this.schema}.verified_contracts WHERE id = $1`,
+      [info.verified_contract_id],
+    );
+
+    // 3. Compilation side clean-up
+    const { rows: sourceRows } = await poolClient.query(
+      `SELECT source_hash FROM ${this.schema}.compiled_contracts_sources WHERE compilation_id = $1`,
+      [info.compilation_id],
+    );
+    await poolClient.query(
+      `DELETE FROM ${this.schema}.compiled_contracts_sources WHERE compilation_id = $1`,
+      [info.compilation_id],
+    );
+    await poolClient.query(
+      `DELETE FROM ${this.schema}.compiled_contracts WHERE id = $1`,
+      [info.compilation_id],
+    );
+    for (const { source_hash } of sourceRows) {
+      await poolClient.query(
+        `DELETE FROM ${this.schema}.sources
+           WHERE source_hash = $1`,
+        [source_hash],
+      );
+    }
+
+    // 4. Deployment side clean-up
+    await poolClient.query(
+      `DELETE FROM ${this.schema}.contract_deployments WHERE id = $1`,
+      [info.deployment_id],
+    );
+    await poolClient.query(
+      `DELETE FROM ${this.schema}.contracts WHERE id = $1`,
+      [info.contract_id],
+    );
+
+    // 5. Remove now-dangling code rows
+    const codeHashes: Buffer[] = [
+      info.contract_creation_code_hash,
+      info.contract_runtime_code_hash,
+      info.compilation_creation_code_hash,
+      info.compilation_runtime_code_hash,
+    ].filter(Boolean);
+
+    for (const hash of codeHashes) {
+      await poolClient.query(
+        `DELETE FROM ${this.schema}.code WHERE code_hash = $1`,
+        [hash],
+      );
+    }
   }
 }

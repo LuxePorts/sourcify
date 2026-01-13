@@ -1,15 +1,15 @@
-import { Response, Request } from "express";
+import type { Response, Request } from "express";
 import {
-  fetchFromEtherscan,
-  getCompilationFromEtherscanResult,
+  fetchFromEtherscanOrThrowError,
+  getCompilationFromEtherscanResultOrThrowV1Error,
 } from "../../../../services/utils/etherscan-util";
 import logger from "../../../../../common/logger";
-import { ChainRepository } from "../../../../../sourcify-chain-repository";
-import {
+import type { ChainRepository } from "../../../../../sourcify-chain-repository";
+import type {
   ISolidityCompiler,
   IVyperCompiler,
 } from "@ethereum-sourcify/lib-sourcify";
-import { Services } from "../../../../services/services";
+import type { Services } from "../../../../services/services";
 import { getApiV1ResponseFromVerification } from "../../../controllers.common";
 
 export async function verifyFromEtherscan(req: Request, res: Response) {
@@ -27,13 +27,13 @@ export async function verifyFromEtherscan(req: Request, res: Response) {
 
   logger.info("verifyFromEtherscan", { chain, address, apiKey });
 
-  const etherscanResult = await fetchFromEtherscan(
+  const etherscanResult = await fetchFromEtherscanOrThrowError(
     sourcifyChain,
     address,
     apiKey,
   );
 
-  const compilation = await getCompilationFromEtherscanResult(
+  const compilation = await getCompilationFromEtherscanResultOrThrowV1Error(
     etherscanResult,
     solc,
     vyperCompiler,

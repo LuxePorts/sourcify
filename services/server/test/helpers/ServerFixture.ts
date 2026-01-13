@@ -1,20 +1,20 @@
 import rimraf from "rimraf";
 import { resetDatabase } from "../helpers/helpers";
-import { Server, ServerOptions } from "../../src/server/server";
+import type { ServerOptions } from "../../src/server/server";
+import { Server } from "../../src/server/server";
 import config from "config";
 import { sourcifyChainsMap } from "../../src/sourcify-chains";
-import {
-  RWStorageIdentifiers,
-  StorageIdentifiers,
-} from "../../src/server/services/storageServices/identifiers";
+import type { StorageIdentifiers } from "../../src/server/services/storageServices/identifiers";
+import { RWStorageIdentifiers } from "../../src/server/services/storageServices/identifiers";
 import { Pool } from "pg";
-import { SourcifyDatabaseService } from "../../src/server/services/storageServices/SourcifyDatabaseService";
+import type { SourcifyDatabaseService } from "../../src/server/services/storageServices/SourcifyDatabaseService";
 import genFunc from "connect-pg-simple";
 import expressSession from "express-session";
 import { SolcLocal } from "../../src/server/services/compiler/local/SolcLocal";
 import { VyperLocal } from "../../src/server/services/compiler/local/VyperLocal";
 import path from "path";
 import { testS3Bucket, testS3Path } from "./S3ClientMock";
+import type { SourcifyChainMap } from "@ethereum-sourcify/lib-sourcify";
 
 export type ServerFixtureOptions = {
   port: number;
@@ -22,6 +22,7 @@ export type ServerFixtureOptions = {
   writeOrWarn: StorageIdentifiers[];
   writeOrErr: StorageIdentifiers[];
   skipDatabaseReset: boolean;
+  chains: SourcifyChainMap;
 };
 
 export class ServerFixture {
@@ -89,11 +90,11 @@ export class ServerFixture {
         port: fixtureOptions_?.port || config.get<number>("server.port"),
         maxFileSize: config.get<number>("server.maxFileSize"),
         corsAllowedOrigins: config.get<string[]>("corsAllowedOrigins"),
-        chains: sourcifyChainsMap,
+        chains: fixtureOptions_?.chains || sourcifyChainsMap,
         solc: new SolcLocal(config.get("solcRepo"), config.get("solJsonRepo")),
         vyper: new VyperLocal(config.get("vyperRepo")),
         verifyDeprecated: true,
-        upgradeContract: true,
+        replaceContract: true,
         sessionOptions: {
           secret: config.get("session.secret"),
           name: "sourcify_vid",
@@ -149,6 +150,32 @@ export class ServerFixture {
             accessKeyId: "test-key",
             secretAccessKey: "test-secret",
           },
+          etherscanVerifyApiServiceOptions: {
+            EtherscanVerify: {
+              chainInformation: {
+                apiUrls: {
+                  31337: "https://api.etherscan.io/api",
+                },
+                explorerUrls: {
+                  31337: "https://etherscan.io/address/${ADDRESS}",
+                },
+              },
+            },
+            BlockscoutVerify: {
+              chainInformation: {
+                explorerUrls: {
+                  31337: "https://eth.blockscout.io/address/${ADDRESS}",
+                },
+              },
+            },
+            RoutescanVerify: {
+              chainInformation: {
+                apiUrls: {
+                  31337: "https://api.etherscan.io/api",
+                },
+              },
+            },
+          },
         },
       );
 
@@ -165,6 +192,7 @@ export class ServerFixture {
         await resetDatabase(this.sourcifyDatabase);
         console.log("Resetting SourcifyDatabase");
       }
+      this.resetChainHealthStates();
     });
 
     after(async () => {
@@ -173,5 +201,20 @@ export class ServerFixture {
       rimraf.sync(config.get("repositoryV2.path"));
       rimraf.sync(path.join(testS3Path, testS3Bucket));
     });
+  }
+
+  resetChainHealthStates(): void {
+    const chains = this.server.chainRepository.sourcifyChainMap;
+    for (const chain of Object.values(chains)) {
+      for (const rpc of chain.rpcs) {
+        if (rpc.health) {
+          rpc.health = {
+            consecutiveFailures: 0,
+            nextRetryTime: undefined,
+          };
+        }
+      }
+    }
+    console.log("Reset RPC health states for all chains");
   }
 }

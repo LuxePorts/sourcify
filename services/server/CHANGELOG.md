@@ -2,9 +2,152 @@
 
 All notable changes to this project will be documented in this file.
 
+## sourcify-server@3.9.0 - 2026-01-07
+
+- Add support for Yul compilation and verification (#2521)
+- Add YUL OpenApi example (#2562)
+- Update OpenAPI documentation and private verification endpoints (#2549)
+- Fix verified contracts unique constraint error (#2552)
+- Fallback to chains.json rpcs (#2573)
+- Add ethpandaops archive node rpc (#2574)
+- Add support for Sei Testnet (chain ID 1328), edit contract for Sei Mainnet (Chain Id 1329) (#2550)
+- Add Sei Network specific Etherscan API key variable (#2547)
+- Disable chains which fail CI tests (#2557)
+
+
+## sourcify-server@3.8.1 - 2025-12-15
+
+- Support new "already verified" message from Etherscan (#2520)
+- Change JOIN to LEFT JOIN for compiled_contracts_signatures in query (#2526)
+- Fix v2 etherscan error handling (#2523)
+- Update PulseChain's fetchContractCreationTxUsing blockscout API link (#2528)
+- Enhance PulseChain Mainnet configuration (#2536)
+- Add await to storeExternalVerificationResult calls (#2534)
+- Add contractApiUrl to externalVerifcations returned properties (#2535)
+- Update dependencies
+- Fix prettier
+- Add chains:
+    - 1329 Sei network
+    - 42429 Tempo testnet
+
+
+## sourcify-server@3.8.0 - 2025-11-19
+
+- update dependencies
+- Turn @typescript-eslint/consistent-type-imports rule on (#2496)
+- Similarity search verification (#2481)
+- Enable prettier on yaml and js files inside server (#2499)
+- Add external verification links to verification job responses (#2504)
+- Add chains:
+  - 5042002 ARC-testnet
+  - 9700 OORT Testnet
+
+## sourcify-server@3.7.0 - 2025-11-04
+
+- Add /version endpoint to server (#2489)
+- Redirect to repo and verify UI also without path (#2480)
+- Add chain 296 Hedera Testnet (#2486)
+
+## sourcify-server@3.6.1 - 2025-10-30
+
+- Disable Holesky Testnet because of deprecation (#2477)
+
+## sourcify-server@3.6.0 - 2025-10-28
+
+- Implement EtherscanVerifyAPIService (#2430)
+  - sends verification requests to Etherscan, Blockscout and/or Routescan after verifying on Sourcify
+- Add SSL support for SOURCIFY_POSTGRES (#2458)
+- Add redirects from server to repo and verify UI (#2468)
+- Remove the signature database tag from server openapi.yaml (#2451) 
+- add chains:
+  - 1868 Soneium
+  - 480 WorldChain
+  - 146 Sonic Mainnet
+  - 1597 Reactive Network Mainnet
+- Enable fetching from Taiko Etherscan API (#2463)
+
+## sourcify-server@3.5.0 - 2025-10-16
+
+- Remove the signature APIs from server, to be moved to the separate 4byte service
+- Turn off writing to repositoryV1 and repositoryV2
+- Make pg max connections configurable and set to 15 default (#2392)
+- Remove Etherscan instance from Cronos (25) due to deprecation (#2420)
+- Add timeout to binary search for fetching contract creation tx (#2403)
+- New chains:
+  - Lisk Mainnet (1135)
+  - Unichain (130)
+  - Taiko Aleshia (167000)
+  - Blast (81457)
+  - Celo Sepolia Testnet (11142220)
+  - Zilliqa EVM Testnet (33101)
+- Deprecated chains:
+  - Celo Alfajores Testnet (44787)
+  - Celo Baklava Testnet (62320)
+
+## sourcify-server@3.4.0 - 2025-09-18
+
+- 4byte read endpoints (#2373)
+- Add fields and selectors for querying signatures via contract lookup API (#2377)
+- Add logic for writing signatures to db inside SourcifyDatabaseService (#2357)
+- Update Docker image references to argotorg in README and docker-compose files (#2332)
+- Add Privix Chain mainnet (16969696) & testnet (96969696) to Sourcify (#2338)
+- Disable polygon zkevm (#2360)
+- Disable chains that fail chain-tests in CI (#2375)
+- Replace Blast API with Alchemy, add Celo Sepolia (#2372)
+
+## sourcify-server@3.3.3 - 2025-08-25
+
+- Move Etherscan utils to lib-sourcify (#2297)
+- Compiler version validation (#2303)
+- Add server integration tests for 0.4.11 (pass) and 0.4.10 (fail)
+- Update dependencies
+
+## sourcify-server@3.3.2 - 2025-08-12
+
+- Update Dockerfiles from Bullseye to Bookworm for Vyper compiler compatibility (#2289)
+- Allow to replace contracts on unsupported chains (#2292)
+- Fixes to massive replace for contracts from verifyDepracted (#2299)
+
+## sourcify-server@3.3.1 - 2025-08-11
+
+- Fix transaction hash assignment in replaceContract and fix error message in replaceCreationInformation
+- Add error handling for on-chain creation bytecode fetching in replaceContract
+- Add configuration for replacing metadata in sourcify_matches table via massive replace script
+- Fix RPC index of others when an RPC is skipped (#2275)
+- Fix VerificationService to handle errors thrown by workerPool.run (#2279)
+
+## sourcify-server@3.3.0 - 2025-08-04
+
+- Remove json input from API v1 verify/solc-json log (#2225)
+- Do not log full bytecodes on worker errors in log.debug()
+- Throw for missing chainId
+- Disable failing chains, update chains.json (#2237)
+- Log client identification headers for verify.sourcify.dev UI requests (#2246)
+- Remove transactionHash requirement from replace-contract request body
+- Add massive replace script with configuration and API integration (#2268)
+- update dependencies
+- New chains:
+  - Add PlatON Testnet (2206132)
+
+## sourcify-server@3.2.1 - 2025-07-09
+
+- Move CORS settings as the first middleware (#2204)
+- Verify via SolidityCompilation directly inside /verify/solc-json endpoint (#2216)
+- update dependencies
+
+## sourcify-server@3.2.0 - 2025-06-18
+
+- Add new endpoint /v2/contract/all-chains/{address} to get all verified deployments of a contract on all chains #2183
+- Handle invalid json body error, throw if unable to fetch the compiler #2179
+- Throw an error on conflict when inserting a verified_contract #2176
+- Add contract creation transaction fetching via VeChain Stats #2182
+- Update README docs and quick start docker-compose files for easier setup
+- New chains:
+  - Peaq Mainnet (3338)
+
 ## sourcify-server@3.1.3 - 2025-05-20
 
-- Use Etherscan API v2 (#2158) 
+- Use Etherscan API v2 (#2158)
 
 ## sourcify-server@3.1.2 - 2025-05-12
 
@@ -42,11 +185,11 @@ All notable changes to this project will be documented in this file.
 
 ## sourcify-server@3.0.0 - 2025-04-09
 
-- Integrate new lib-sourcify classes in server (#1960) 
+- Integrate new lib-sourcify classes in server (#1960)
 - Use VerificationExport for storeVerification methods of storage services (#1995)
 - Improve express error handler (#2027)
 - Add upgrade contract private endpoint (#2042)
-- Add updated_at column and trigger to sourcify_matches (#2047) 
+- Add updated_at column and trigger to sourcify_matches (#2047)
 - Remove rate limiter (#2046)
 - Update sourcify-chains-default.json to set multiple chains as unsupported
 - Add sourceIds field to v2 lookup (#2060)
@@ -54,6 +197,7 @@ All notable changes to this project will be documented in this file.
 - Update dependencies
 
 New Chains:
+
 - Added Zircuit Garfield Testnet (#2016)
 
 ## sourcify-server@2.7.1 - 2025-03-20
@@ -326,7 +470,7 @@ New Chains:
   - We'll write to the DB and FS simulatanously for a while. Still, the FS is the source of truth until full migration.
   - Scripts available to migrate the DB.
   - repository (filesystem) is now repositoryV1. We keep it for backwards compatibility but we'll remove it soon.
-  - We'll have repository V2 will be here long term and will replace V1. The main purpose is to serve files on IPFS. Here we normalize the file names with their hashes which should solve the name problems [#515](https://github.com/ethereum/sourcify/issues/515).
+  - We'll have repository V2 will be here long term and will replace V1. The main purpose is to serve files on IPFS. Here we normalize the file names with their hashes which should solve the name problems [#515](https://github.com/argotorg/sourcify/issues/515).
 - Replace the keccak256 identifier generation in the session with a lightweight hash (node crypto's sha1)
 - New chains:
   - ZetaChain Mainnet (7000)
@@ -378,8 +522,8 @@ New Chains:
 ## sourcify-server@1.4.0 - 2023-12-19
 
 - Remove `CREATE2` verification and related code as it is not used and makes the code unnecessarily complex with `AUTH0` etc.
-- Clean-up environment variables and enable passing configs in a .js file. https://github.com/ethereum/sourcify/pull/1232. Use config instead of env vars.
-- Enable passing `sourcify-chains.json` as a file instead of a built-in `sourcify-chains.ts` https://github.com/ethereum/sourcify/pull/1223
+- Clean-up environment variables and enable passing configs in a .js file. https://github.com/argotorg/sourcify/pull/1232. Use config instead of env vars.
+- Enable passing `sourcify-chains.json` as a file instead of a built-in `sourcify-chains.ts` https://github.com/argotorg/sourcify/pull/1223
 - Change the `RepositoryService` to `IpfsRepositoryService`. Create an umbrella `StorageService` to handle all storage related operations. Also a `AllianceDatabase` service under the `StorageService` which is currently not used (turned off).
 - Use multi-stage Docker builds and use bullseye-slim
 - Bring whitelists for rate limiting
@@ -461,4 +605,4 @@ New Chains:
 ## Older releases
 
 Previously, the releases were not done one separate modules of Sourcify but for the repository as a whole.
-You can find the changelog for those releases in [older releases](https://github.com/ethereum/sourcify/releases) for this repository.
+You can find the changelog for those releases in [older releases](https://github.com/argotorg/sourcify/releases) for this repository.

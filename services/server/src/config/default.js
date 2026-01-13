@@ -14,15 +14,9 @@ module.exports = {
     // read option will be the "source of truth" where the contracts read from for the API requests.
     read: RWStorageIdentifiers.SourcifyDatabase,
     // User request will NOT fail if saving to these fail, but only log a warning
-    writeOrWarn: [
-      WStorageIdentifiers.AllianceDatabase,
-      RWStorageIdentifiers.RepositoryV1,
-    ],
+    writeOrWarn: [],
     // The user request will fail if saving to these fail
-    writeOrErr: [
-      WStorageIdentifiers.RepositoryV2,
-      RWStorageIdentifiers.SourcifyDatabase,
-    ],
+    writeOrErr: [RWStorageIdentifiers.SourcifyDatabase],
   },
   // Legacy repository
   repositoryV1: {
@@ -60,5 +54,5 @@ module.exports = {
   ],
   // verify-deprecated endpoint used in services/database/scripts.mjs. Used when recreating the DB with deprecated chains that don't have an RPC.
   verifyDeprecated: false,
-  upgradeContract: false,
+  replaceContract: false,
 };

@@ -1,10 +1,10 @@
-import { Request, Response, NextFunction } from "express";
+import type { Request, Response, NextFunction } from "express";
 import { getAddress } from "ethers";
 import { BadRequestError, InternalServerError } from "../../common/errors";
 import logger from "../../common/logger";
 import { isContractAlreadyPerfect } from "./verification/verification.common";
-import { Services } from "../services/services";
-import {
+import type { Services } from "../services/services";
+import type {
   ImmutableReferences,
   StringMap,
   Transformation,
@@ -12,7 +12,7 @@ import {
   Verification,
   VerificationStatus,
 } from "@ethereum-sourcify/lib-sourcify";
-import { Match } from "../types";
+import type { Match } from "../types";
 
 export function checksumAddresses(
   req: Request,
@@ -97,8 +97,10 @@ export async function checkPerfectMatch(
   }
 }
 
-export interface ApiV1Response
-  extends Omit<Match, "runtimeMatch" | "creationMatch"> {
+export interface ApiV1Response extends Omit<
+  Match,
+  "runtimeMatch" | "creationMatch"
+> {
   abiEncodedConstructorArguments?: string;
   libraryMap?: StringMap;
   creatorTxHash?: string;

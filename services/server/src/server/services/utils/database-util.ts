@@ -1,4 +1,4 @@
-import {
+import type {
   ImmutableReferences,
   Metadata,
   VerificationStatus,
@@ -16,17 +16,27 @@ import {
   SoliditySettings,
   VyperSettings,
   SourcifyLibErrorData,
+  ISolidityCompiler,
+  IVyperCompiler,
 } from "@ethereum-sourcify/lib-sourcify";
-import { Abi } from "abitype";
 import {
+  PreRunCompilation,
+  splitFullyQualifiedName,
+} from "@ethereum-sourcify/lib-sourcify";
+import type {
   VerifiedContract as VerifiedContractApiObject,
   Bytes,
   BytesSha,
   BytesKeccak,
   BytesTypes,
   Nullable,
+  SignatureRepresentations,
+  SimilarityCandidate,
 } from "../../types";
+import type { JsonFragment } from "ethers";
 import { keccak256 } from "ethers";
+import { SignatureType } from "./signature-util";
+import type { EtherscanVerifyApiIdentifiers } from "../storageServices/EtherscanVerifyApiService";
 
 export type JobErrorData = Omit<SourcifyLibErrorData, "chainId" | "address">;
 
@@ -61,11 +71,13 @@ export namespace Tables {
     name: string;
     fully_qualified_name: string;
     compilation_artifacts: {
-      abi: Nullable<Abi>;
+      abi: Nullable<JsonFragment[]>;
       userdoc: Nullable<any>;
       devdoc: Nullable<any>;
       storageLayout: Nullable<StorageLayout>;
       sources: Nullable<CompilationArtifactsSources>;
+      methodIdentifiers?: Nullable<any>;
+      ir?: any;
     };
     compiler_settings: Omit<
       SoliditySettings | VyperSettings,
@@ -147,6 +159,9 @@ export namespace Tables {
     verification_endpoint: string;
     hardware: Nullable<string>;
     compilation_time: Nullable<string>;
+    external_verification: Nullable<
+      Record<EtherscanVerifyApiIdentifiers, ExternalVerification>
+    >;
   }
 
   export interface VerificationJobEphemeral {
@@ -157,6 +172,23 @@ export namespace Tables {
     onchain_runtime_code: Nullable<Bytes>;
     creation_transaction_hash: Nullable<Bytes>;
   }
+
+  export interface Signatures {
+    signature_hash_32: BytesKeccak;
+    signature_hash_4: Bytes;
+    signature: string;
+  }
+
+  export interface CompiledContractsSignatures {
+    id: string;
+    compilation_id: string;
+    signature_hash_32: BytesKeccak;
+    signature_type: "function" | "event" | "error";
+  }
+}
+export interface ExternalVerification {
+  verificationId?: string;
+  error?: string;
 }
 
 export interface SourceInformation {
@@ -199,10 +231,25 @@ export type GetSourcifyMatchByChainAddressResult = Tables.SourcifyMatch &
     onchain_runtime_code: string;
   };
 
+export type GetSourcifyMatchesAllChainsResult = Pick<
+  Tables.SourcifyMatch,
+  "id" | "creation_match" | "runtime_match"
+> &
+  Pick<Tables.ContractDeployment, "chain_id"> & {
+    address: string;
+    verified_at: string;
+  };
+
 export type GetSourcifyMatchesByChainResult = Pick<
   Tables.SourcifyMatch,
   "id" | "creation_match" | "runtime_match"
 > & { address: string; verified_at: string };
+
+export interface CodePrefixMatchResult {
+  compilation_id: Tables.VerifiedContract["compilation_id"];
+  chain_id: Tables.ContractDeployment["chain_id"];
+  address: string;
+}
 
 export type GetSourcifyMatchByChainAddressWithPropertiesResult = Partial<
   Pick<
@@ -229,7 +276,10 @@ export type GetSourcifyMatchByChainAddressWithPropertiesResult = Partial<
       | "runtime_transformations"
       | "runtime_values"
     > &
-    Pick<Tables.ContractDeployment, "block_number" | "transaction_index"> & {
+    Pick<
+      Tables.ContractDeployment,
+      "block_number" | "transaction_index" | "chain_id"
+    > & {
       verified_at: string;
       address: string;
       onchain_creation_code: string;
@@ -250,6 +300,9 @@ export type GetSourcifyMatchByChainAddressWithPropertiesResult = Partial<
       source_ids: Tables.CompiledContract["compilation_artifacts"]["sources"];
       std_json_input: SolidityJsonInput | VyperJsonInput;
       std_json_output: SolidityOutput | VyperOutput;
+      function_signatures: SignatureRepresentations[];
+      event_signatures: SignatureRepresentations[];
+      error_signatures: SignatureRepresentations[];
     }
 >;
 
@@ -261,6 +314,7 @@ export type GetVerificationJobByIdResult = Pick<
   | "error_id"
   | "error_data"
   | "compilation_time"
+  | "external_verification"
 > & {
   started_at: string;
   completed_at: Nullable<string>;
@@ -289,10 +343,26 @@ export type GetVerificationJobsByChainAndAddressResult = {
 const sourcesAggregation =
   "json_object_agg(compiled_contracts_sources.path, json_build_object('content', sources.content))";
 
+function generateSignaturesSelector(type: SignatureType) {
+  return `
+    COALESCE(
+      json_agg(
+        json_build_object(
+          'signature', signatures.signature,
+          'signatureHash32', concat('0x', encode(signatures.signature_hash_32, 'hex')),
+          'signatureHash4', concat('0x', encode(signatures.signature_hash_4, 'hex'))
+        ) ORDER BY signatures.signature
+      ) FILTER (WHERE compiled_contracts_signatures.signature_type = '${type}'),
+      '[]'::json
+    ) as ${type}_signatures
+  `;
+}
+
 export const STORED_PROPERTIES_TO_SELECTORS = {
   id: "sourcify_matches.id",
   creation_match: "sourcify_matches.creation_match",
   runtime_match: "sourcify_matches.runtime_match",
+  chain_id: "contract_deployments.chain_id",
   verified_at:
     'to_char(sourcify_matches.created_at, \'YYYY-MM-DD"T"HH24:MI:SS"Z"\') as verified_at',
   address:
@@ -366,12 +436,12 @@ export const STORED_PROPERTIES_TO_SELECTORS = {
           'storageLayout', compiled_contracts.compilation_artifacts->'storageLayout',
           'evm', json_build_object(
             'bytecode', json_build_object(
-              'object', nullif(concat('0x', encode(recompiled_creation_code.code, 'hex')), '0x'),
+              'object', nullif(encode(recompiled_creation_code.code, 'hex'), ''),
               'sourceMap', compiled_contracts.creation_code_artifacts->'sourceMap',
               'linkReferences', compiled_contracts.creation_code_artifacts->'linkReferences'
             ),
             'deployedBytecode', json_build_object(
-              'object', nullif(concat('0x', encode(recompiled_runtime_code.code, 'hex')), '0x'),
+              'object', nullif(encode(recompiled_runtime_code.code, 'hex'), ''),
               'sourceMap', compiled_contracts.runtime_code_artifacts->'sourceMap',
               'linkReferences', compiled_contracts.runtime_code_artifacts->'linkReferences',
               'immutableReferences', compiled_contracts.runtime_code_artifacts->'immutableReferences'
@@ -381,6 +451,9 @@ export const STORED_PROPERTIES_TO_SELECTORS = {
       )
     )
   ) as std_json_output`,
+  function_signatures: generateSignaturesSelector(SignatureType.Function),
+  event_signatures: generateSignaturesSelector(SignatureType.Event),
+  error_signatures: generateSignaturesSelector(SignatureType.Error),
 };
 
 export type StoredProperties = keyof typeof STORED_PROPERTIES_TO_SELECTORS;
@@ -397,6 +470,9 @@ type deploymentSubfields = keyof NonNullable<
 type compilationSubfields = keyof NonNullable<
   VerifiedContractApiObject["compilation"]
 >;
+type signaturesSubfields = keyof NonNullable<
+  VerifiedContractApiObject["signatures"]
+>;
 type proxyResolutionSubfields = keyof Partial<
   VerifiedContractApiObject["proxyResolution"]
 >;
@@ -412,6 +488,7 @@ export const FIELDS_TO_STORED_PROPERTIES: Record<
     | "runtimeBytecode"
     | "deployment"
     | "compilation"
+    | "signatures"
     | "proxyResolution"
   >,
   StoredProperties
@@ -420,6 +497,7 @@ export const FIELDS_TO_STORED_PROPERTIES: Record<
   runtimeBytecode: Record<runtimeBytecodeSubfields, StoredProperties>;
   deployment: Record<deploymentSubfields, StoredProperties>;
   compilation: Record<compilationSubfields, StoredProperties>;
+  signatures: Record<signaturesSubfields, StoredProperties>;
   proxyResolution: Record<proxyResolutionSubfields, StoredProperties>;
 } = {
   matchId: "id",
@@ -468,6 +546,11 @@ export const FIELDS_TO_STORED_PROPERTIES: Record<
   sourceIds: "source_ids",
   stdJsonInput: "std_json_input",
   stdJsonOutput: "std_json_output",
+  signatures: {
+    function: "function_signatures",
+    event: "event_signatures",
+    error: "error_signatures",
+  },
   proxyResolution: {
     // TODO: remove onchainRuntimeBytecode and onchainCreationBytecode when proxy detection result is stored in database
     onchainRuntimeBytecode: "onchain_runtime_code",
@@ -732,6 +815,19 @@ export async function getDatabaseColumnsFromVerification(
     },
   );
 
+  let compiler;
+  switch (verification.compilation.language.toLocaleLowerCase()) {
+    case "yul":
+    case "solidity":
+      compiler = "solc";
+      break;
+    case "vyper":
+      compiler = "vyper";
+      break;
+    default:
+      throw new Error("Language not supported");
+  }
+
   return {
     recompiledCreationCode,
     recompiledRuntimeCode: {
@@ -757,10 +853,7 @@ export async function getDatabaseColumnsFromVerification(
     },
     compiledContract: {
       language: verification.compilation.language.toLocaleLowerCase(),
-      compiler:
-        verification.compilation.language.toLocaleLowerCase() === "solidity"
-          ? "solc"
-          : "vyper",
+      compiler,
       compiler_settings: prepareCompilerSettingsFromVerification(verification),
       name: verification.compilation.compilationTarget.name,
       version: verification.compilation.compilerVersion,
@@ -791,4 +884,42 @@ export function prepareCompilerSettingsFromVerification(
   const { outputSelection, ...restSettings } =
     verification.compilation.jsonInput.settings;
   return restSettings;
+}
+
+export function createPreRunCompilationFromStoredCandidate(
+  { solc, vyper }: { solc: ISolidityCompiler; vyper: IVyperCompiler },
+  candidate: SimilarityCandidate,
+): PreRunCompilation {
+  const {
+    std_json_input: jsonInput,
+    std_json_output: jsonOutput,
+    version,
+    fully_qualified_name: fullyQualifiedName,
+    creation_cbor_auxdata: creationCborAuxdata,
+    runtime_cbor_auxdata: runtimeCborAuxdata,
+    metadata,
+  } = candidate;
+
+  const { contractPath, contractName } =
+    splitFullyQualifiedName(fullyQualifiedName);
+  const compilationTarget = {
+    name: contractName,
+    path: contractPath,
+  };
+
+  const compilation = new PreRunCompilation(
+    jsonInput.language === "Solidity" ? solc : vyper,
+    version,
+    jsonInput,
+    jsonOutput,
+    compilationTarget,
+    creationCborAuxdata || {},
+    runtimeCborAuxdata || {},
+  );
+
+  if (jsonInput.language === "Vyper" && metadata) {
+    compilation.setMetadata(metadata);
+  }
+
+  return compilation;
 }

@@ -1,4 +1,4 @@
-import { Abi } from "abitype";
+import { JsonFragment } from "ethers";
 import { Devdoc, Userdoc, LinkReferences } from "./CompilationTypes";
 
 interface File {
@@ -88,7 +88,7 @@ export interface SoliditySettings {
   debug?: Debug;
   metadata?: SettingsMetadata;
   libraries?: Libraries;
-  outputSelection: OutputSelection;
+  outputSelection?: OutputSelection;
   modelChecker?: ModelChecker;
 }
 
@@ -158,7 +158,7 @@ export interface StorageLayout {
   };
 }
 export interface SolidityOutputContract {
-  abi: Abi;
+  abi: JsonFragment[];
   metadata: string;
   userdoc?: Userdoc;
   devdoc?: Devdoc;

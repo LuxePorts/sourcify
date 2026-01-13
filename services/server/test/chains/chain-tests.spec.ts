@@ -16,10 +16,10 @@ config["session"].storeType = "memory";
 
 type ChainApiResponse = Pick<
   SourcifyChain,
-  "name" | "title" | "chainId" | "rpc" | "supported"
-> & { etherscanAPI: boolean };
+  "name" | "title" | "chainId" | "supported"
+> & { etherscanAPI: boolean; rpc?: string[] };
 
-const TEST_TIME = process.env.TEST_TIME || "60000"; // 30 seconds
+const TEST_TIME = process.env.TEST_TIME || "120000"; // 2 minutes
 const CUSTOM_PORT = 5556;
 
 // Extract the chainId from new chain support pull request, if exists
@@ -68,6 +68,21 @@ describe("Test Supported Chains", function () {
       );
     }
   });
+  // Privix Chain Mainnet
+  verifyContract(
+    "0x6696485Dc98Fadd6498414DD57dBaa3253FC31AD",
+    "16969696",
+    "Privix Chain Mainnet",
+    "shared/",
+  );
+
+  // Privix Chain Testnet
+  verifyContract(
+    "0x9A7ea4c9B7B0b628241F08ECC290b4C17F5f6955",
+    "96969696",
+    "Privix Chain Testnet",
+    "shared/",
+  );
   // exSat Mainnet
   verifyContract(
     "0xb0A32eBb9CD221d2FD91149195d87bE97552A90c",
@@ -105,6 +120,15 @@ describe("Test Supported Chains", function () {
     "shared/",
   );
 
+  // Lisk Mainnet
+  verifyContract(
+    "0xcA11bde05977b3631167028862bE2a173976CA11",
+    "1135",
+    "Lisk Mainnet",
+    "multicall-src/",
+    "partial",
+  );
+
   verifyContract(
     "0x801f3983c7baBF5E6ae192c84E1257844aDb4b4D",
     "1",
@@ -135,17 +159,26 @@ describe("Test Supported Chains", function () {
   //   "shared/",
   // );
 
-  verifyContract(
-    "0x7ecedB5ca848e695ee8aB33cce9Ad1E1fe7865F8",
-    "17000",
-    "Holesky",
-    "shared/",
-  );
+  // Ethereum Holesky Testnet
+  // verifyContract(
+  //   "0x7ecedB5ca848e695ee8aB33cce9Ad1E1fe7865F8",
+  //   "17000",
+  //   "Holesky",
+  //   "shared/",
+  // );
 
   verifyContract(
     "0x8F78b9c92a68DdF719849a40702cFBfa4EB60dD0",
     "11155111",
     "Sepolia",
+    "shared/",
+  );
+
+  // Mezo Mainnet
+  verifyContract(
+    "0xc9Cbb09AA24abDb47574828D0Bb6bB218B550f39",
+    "31612",
+    "Mezo",
     "shared/",
   );
 
@@ -206,13 +239,6 @@ describe("Test Supported Chains", function () {
   );
 
   verifyContract(
-    "0x8F78b9c92a68DdF719849a40702cFBfa4EB60dD0",
-    "44787",
-    "Celo Alfajores Testnet",
-    "shared/",
-  );
-
-  verifyContract(
     "0xd46fd24ea21F04459407Fb0B518451e54d0b07a1",
     "97",
     "Binance Smart Chain Testnet",
@@ -224,6 +250,24 @@ describe("Test Supported Chains", function () {
     "137",
     "Polygon (Matic)",
     "137/",
+  );
+
+  // Unichain Mainnet
+  verifyContract(
+    "0xcA11bde05977b3631167028862bE2a173976CA11",
+    "130",
+    "Unichain",
+    "multicall-src/",
+    "partial",
+  );
+
+  // Blast Mainnet
+  verifyContract(
+    "0xcA11bde05977b3631167028862bE2a173976CA11",
+    "81457",
+    "Blast",
+    "multicall-src/",
+    "partial",
   );
 
   // verifyContract(
@@ -241,10 +285,10 @@ describe("Test Supported Chains", function () {
   );
 
   verifyContract(
-    "0xdd5FFA1DF887D5A42931a746BaAd62574501A5Aa",
-    "62320",
-    "Celo Baklava Testnet",
-    "62320/",
+    "0x0Ec727eD4b65Ca0e2D80A6a9fdA73D4d3bb042A6",
+    "11142220",
+    "Celo Sepolia Testnet",
+    "shared/",
   );
 
   verifyContract(
@@ -939,6 +983,14 @@ describe("Test Supported Chains", function () {
     "shared/",
   );
 
+  // Hedera Testnet
+  verifyContract(
+    "0x8DdDA03161b1105Bc53A3C644B2967905d0eAe6e",
+    "296",
+    "Hedera Testnet",
+    "shared/",
+  );
+
   // DogeChain Mainnet
   verifyContract(
     "0x2a35F4AA0d3e417e8896E972f35dba4b39b6305e",
@@ -1003,6 +1055,15 @@ describe("Test Supported Chains", function () {
   //   "shared/",
   //   "partial"
   // );
+
+  // Taiko Aleshia
+  verifyContract(
+    "0xcA11bde05977b3631167028862bE2a173976CA11",
+    "167000",
+    "Taiko Aleshia",
+    "multicall-src/",
+    "partial",
+  );
 
   // ZORA Mainnet
   verifyContract(
@@ -1720,6 +1781,14 @@ describe("Test Supported Chains", function () {
     "shared/",
   );
 
+  //OORT Testnet
+  verifyContract(
+    "0x55A6D202054A3DC83E3e64694ae9554B9354dA74",
+    "9700",
+    "OORT Testnet",
+    "shared/",
+  );
+
   //B2 Mainnet
   verifyContract(
     "0x3A3a009856AC673D91892b05068EB82080ff8744",
@@ -1863,6 +1932,120 @@ describe("Test Supported Chains", function () {
     "Etherlink Testnet",
     "shared/",
   );
+  // peaq
+  verifyContract(
+    "0x3ef7f3E38704eD3702D105094Bbb8562BE51b569",
+    "3338",
+    "peaq Mainnet",
+    "shared/",
+  );
+
+  // PlatON Testnet
+  verifyContract(
+    "0x1c850623b1581A8aA01d6B9AfC14D90990F2a54f",
+    "2206132",
+    "PlatON Testnet",
+    "shared/",
+  );
+  // PlatON Mainnet
+  verifyContract(
+    "0x9288D792A4b08E1f5c74725197298294dd3Fc8b3",
+    "210425",
+    "PlatON Mainnet",
+    "shared/",
+  );
+
+  // soneium Mainnet
+  verifyContract(
+    "0xcA11bde05977b3631167028862bE2a173976CA11",
+    "1868",
+    "Soneium Mainnet",
+    "multicall-src/",
+    "partial",
+  );
+
+  // WorldChain
+  verifyContract(
+    "0xcA11bde05977b3631167028862bE2a173976CA11",
+    "480",
+    "WorldChain",
+    "multicall-src/",
+    "partial",
+  );
+
+  // Sonic
+  verifyContract(
+    "0xaEcac50ba44dc8Fa2a4c8410E5215315eD3CA4B4",
+    "146",
+    "Sonic Mainnet",
+    "shared/",
+  );
+
+  // Reactive Network
+  verifyContract(
+    "0xCBe2F4039A3990E17b206fad54Aa6fe1EFcdF35B",
+    "1597",
+    "Reactive Network Mainnet",
+    "shared/",
+  );
+
+  // ARC-testnet
+  verifyContract(
+    "0xcA11bde05977b3631167028862bE2a173976CA11",
+    "5042002",
+    "ARC-testnet",
+    "multicall-src/",
+    "partial",
+  );
+  // Sei Testnet
+  verifyContract(
+    "0x504294682d7A9941fCC1a5c3D847251df38E790B",
+    "1328",
+    "Sei Testnet",
+    "shared/",
+    "perfect",
+  );
+  // Sei Network
+  verifyContract(
+    "0xc9f275dc9c9d7451dAa5655d0105F0266b31347f",
+    "1329",
+    "Sei Network",
+    "shared/",
+    "perfect",
+  );
+
+  // Tempo Testnet (Andantino)
+  verifyContract(
+    "0x7ecedB5ca848e695ee8aB33cce9Ad1E1fe7865F8",
+    "42429",
+    "Tempo Testnet (Andantino)",
+    "shared/",
+    "perfect",
+  );
+
+  // Jovay Sepolia Testnet
+  verifyContract(
+    "0x63A2fA72305de66654bB95606190f5477abeAf36",
+    "2019775",
+    "Jovay Sepolia Testnet",
+    "shared/",
+  );
+  // Jovay Mainnet
+  verifyContract(
+    "0x63A2fA72305de66654bB95606190f5477abeAf36",
+    "5734951",
+    "Jovay Mainnet",
+    "shared/",
+  );
+
+  // Tempo Testnet (Moderato)
+  verifyContract(
+    "0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed",
+    "42431",
+    "Tempo Testnet (Moderato)",
+    "createx/",
+    "partial",
+  );
 
   it("should have included Etherscan contracts for all testedChains having etherscanAPI", function (done) {
     const missingEtherscanTests: ChainApiResponse[] = [];
@@ -1941,6 +2124,19 @@ describe("Test Supported Chains", function () {
       const fullDir = path.join(__dirname, "sources", sourceAndMetadataDir);
       const files = {};
       readFilesRecursively(fullDir, files);
+
+      // Check if the chain is supported using the /chains endpoint data
+      const isChainSupported = supportedChains.some(
+        (chain) => chain.chainId.toString() === chainId,
+      );
+
+      if (!isChainSupported) {
+        console.log(
+          `Skipping test for unsupported chain: ${chainName} (${chainId})`,
+        );
+        this.skip();
+        return;
+      }
 
       chai
         .request(serverFixture.server.app)

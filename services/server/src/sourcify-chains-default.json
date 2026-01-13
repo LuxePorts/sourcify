@@ -4,7 +4,7 @@
     "supported": true,
     "etherscanApi": {
       "supported": true,
-      "apiKeyEnvName": "ETHERSCAN_API_KEY"
+      "apiKeyEnvName": "ETHERSCAN_API_KEY_MAINNET"
     },
     "fetchContractCreationTxUsing": {
       "blockscoutApi": {
@@ -32,6 +32,20 @@
         ]
       },
       {
+        "type": "FetchRequest",
+        "url": "https://archive.mainnet.ethpandaops.io",
+        "headers": [
+          {
+            "headerName": "CF-Access-Client-Id",
+            "headerEnvName": "CF_ACCESS_CLIENT_ID"
+          },
+          {
+            "headerName": "CF-Access-Client-Secret",
+            "headerEnvName": "CF_ACCESS_CLIENT_SECRET"
+          }
+        ]
+      },
+      {
         "type": "APIKeyRPC",
         "url": "https://eth-mainnet.g.alchemy.com/v2/{API_KEY}",
         "apiKeyEnvName": "ALCHEMY_API_KEY"
@@ -45,36 +59,74 @@
       }
     ]
   },
-  "17000": {
-    "sourcifyName": "Ethereum Holesky Testnet",
+  "16969696": {
+    "sourcifyName": "Privix Chain Mainnet",
+    "supported": false
+  },
+  "96969696": {
+    "sourcifyName": "Privix Chain Testnet",
+    "supported": false
+  },
+  "1135": {
+    "sourcifyName": "Lisk Mainnet",
+    "supported": true,
+    "fetchContractCreationTxUsing": {
+      "blockscoutApi": {
+        "url": "https://blockscout.lisk.com"
+      }
+    }
+  },
+  "130": {
+    "sourcifyName": "Unichain",
+    "supported": true,
+    "fetchContractCreationTxUsing": {
+      "blockscoutApi": {
+        "url": "https://unichain.blockscout.com"
+      }
+    }
+  },
+  "167000": {
+    "sourcifyName": "Taiko Aleshia",
     "supported": true,
     "etherscanApi": {
       "supported": true,
-      "apiKeyEnvName": "ETHERSCAN_API_KEY"
+      "apiKeyEnvName": "ETHERSCAN_API_KEY_TAIKO"
     },
     "fetchContractCreationTxUsing": {
       "blockscoutApi": {
-        "url": "https://eth-holesky.blockscout.com/"
+        "url": "https://blockscout.mainnet.taiko.xyz"
       },
-      "etherscanApi": true,
-      "routescanApi": {
-        "type": "testnet"
-      }
+      "etherscanApi": true
+    }
+  },
+  "81457": {
+    "sourcifyName": "Blast",
+    "supported": true,
+    "etherscanApi": {
+      "supported": true,
+      "apiKeyEnvName": "ETHERSCAN_API_KEY_BLAST"
+    },
+    "fetchContractCreationTxUsing": {
+      "etherscanApi": true
     },
     "rpc": [
       {
         "type": "APIKeyRPC",
-        "url": "https://eth-holesky.g.alchemy.com/v2/{API_KEY}",
+        "url": "https://blast-mainnet.g.alchemy.com/v2/{API_KEY}",
         "apiKeyEnvName": "ALCHEMY_API_KEY"
       },
       {
         "type": "APIKeyRPC",
-        "url": "https://{SUBDOMAIN}.ethereum-holesky.quiknode.pro/{API_KEY}",
+        "url": "https://{SUBDOMAIN}.blast-mainnet.quiknode.pro/{API_KEY}",
         "apiKeyEnvName": "QUICKNODE_API_KEY",
         "subDomainEnvName": "QUICKNODE_SUBDOMAIN",
-        "traceSupport": "trace_transaction"
+        "traceSupport": "debug_traceTransaction"
       }
     ]
+  },
+  "17000": {
+    "sourcifyName": "Ethereum Holesky Testnet",
+    "supported": false
   },
   "5": {
     "sourcifyName": "Ethereum Goerli Testnet",
@@ -160,10 +212,24 @@
     "sourcifyName": "PulseChain Mainnet",
     "supported": true,
     "fetchContractCreationTxUsing": {
-      "blockscoutScrape": {
-        "url": "https://scan.pulsechain.com/"
+      "blockscoutApi": {
+        "url": "https://api.scan.pulsechain.com/"
       }
-    }
+    },
+    "rpc": [
+      {
+        "url": "https://rpc.pulsechain.com",
+        "type": "BaseRPC",
+        "traceSupport": "trace_transaction"
+      },
+      "https://pulsechain-rpc.publicnode.com",
+      "wss://pulsechain-rpc.publicnode.com",
+      {
+        "url": "https://rpc-pulsechain.g4mm4.io",
+        "type": "BaseRPC",
+        "traceSupport": "trace_transaction"
+      }
+    ]
   },
   "3": {
     "sourcifyName": "Ethereum Ropsten Testnet",
@@ -175,7 +241,7 @@
   },
   "50": {
     "sourcifyName": "XDC Network",
-    "supported": true,
+    "supported": false,
     "fetchContractCreationTxUsing": {
       "blocksScanApi": {
         "url": "https://xdcscan.io/"
@@ -202,18 +268,7 @@
       "etherscanApi": true
     },
     "rpc": [
-      "https://bsc-dataseed1.bnbchain.org",
-      "https://bsc-dataseed2.bnbchain.org",
-      "https://bsc-dataseed3.bnbchain.org",
-      "https://bsc-dataseed4.bnbchain.org",
-      "https://bsc-dataseed1.defibit.io",
-      "https://bsc-dataseed2.defibit.io",
-      "https://bsc-dataseed3.defibit.io",
-      "https://bsc-dataseed4.defibit.io",
-      "https://bsc-dataseed1.ninicoin.io",
-      "https://bsc-dataseed2.ninicoin.io",
-      "https://bsc-dataseed3.ninicoin.io",
-      "https://bsc-dataseed4.ninicoin.io",
+      "https://bsc-rpc.publicnode.com",
       {
         "type": "APIKeyRPC",
         "url": "https://{SUBDOMAIN}.bsc.quiknode.pro/{API_KEY}",
@@ -238,21 +293,11 @@
   },
   "82": {
     "sourcifyName": "Meter Mainnet",
-    "supported": true,
-    "fetchContractCreationTxUsing": {
-      "meterApi": {
-        "url": "https://api.meter.io:8000/"
-      }
-    }
+    "supported": true
   },
   "83": {
     "sourcifyName": "Meter Testnet",
-    "supported": true,
-    "fetchContractCreationTxUsing": {
-      "meterApi": {
-        "url": "https://api.meter.io:4000/"
-      }
-    }
+    "supported": true
   },
   "97": {
     "sourcifyName": "Binance Smart Chain Testnet",
@@ -265,12 +310,6 @@
       "etherscanApi": true
     },
     "rpc": [
-      "https://data-seed-prebsc-1-s1.bnbchain.org:8545",
-      "https://data-seed-prebsc-2-s1.bnbchain.org:8545",
-      "https://data-seed-prebsc-1-s2.bnbchain.org:8545",
-      "https://data-seed-prebsc-2-s2.bnbchain.org:8545",
-      "https://data-seed-prebsc-1-s3.bnbchain.org:8545",
-      "https://data-seed-prebsc-2-s3.bnbchain.org:8545",
       "https://bsc-testnet-rpc.publicnode.com",
       {
         "type": "APIKeyRPC",
@@ -283,12 +322,7 @@
   },
   "216": {
     "sourcifyName": "Happychain Testnet",
-    "supported": true,
-    "fetchContractCreationTxUsing": {
-      "blockscoutApi": {
-        "url": "https://explorer.testnet.happy.tech"
-      }
-    }
+    "supported": false
   },
   "100": {
     "sourcifyName": "Gnosis Mainnet",
@@ -305,12 +339,6 @@
     },
     "rpc": [
       "https://rpc.gnosischain.com",
-      "https://rpc.gnosis.gateway.fm",
-      "https://rpc.ankr.com/gnosis",
-      "https://gnosischain-rpc.gateway.pokt.network",
-      "https://gnosis-mainnet.public.blastapi.io",
-      "https://gnosis.api.onfinality.io/public",
-      "https://gnosis.blockpi.network/v1/rpc/public",
       {
         "type": "APIKeyRPC",
         "url": "https://{SUBDOMAIN}.xdai.quiknode.pro/{API_KEY}",
@@ -322,6 +350,10 @@
   },
   "295": {
     "sourcifyName": "Hedera Mainnet",
+    "supported": true
+  },
+  "296": {
+    "sourcifyName": "Hedera Testnet",
     "supported": true
   },
   "300": {
@@ -399,24 +431,18 @@
   },
   "44787": {
     "sourcifyName": "Celo Alfajores Testnet",
-    "supported": true,
-    "etherscanApi": {
-      "supported": true,
-      "apiKeyEnvName": "ETHERSCAN_API_KEY_CELO"
-    },
-    "fetchContractCreationTxUsing": {
-      "etherscanApi": true,
-      "blockscoutScrape": {
-        "url": "https://explorer.celo.org/alfajores/"
-      }
-    }
+    "supported": false
   },
   "62320": {
     "sourcifyName": "Celo Baklava Testnet",
+    "supported": false
+  },
+  "11142220": {
+    "sourcifyName": "Celo Sepolia Testnet",
     "supported": true,
     "fetchContractCreationTxUsing": {
-      "blockscoutScrape": {
-        "url": "https://baklava-blockscout.celo-testnet.org/"
+      "blockscoutApi": {
+        "url": "https://celo-sepolia.blockscout.com/"
       }
     }
   },
@@ -592,7 +618,7 @@
   },
   "8": {
     "sourcifyName": "Ubiq Mainnet",
-    "supported": true
+    "supported": false
   },
   "311752642": {
     "sourcifyName": "Oneledger Mainnet",
@@ -920,7 +946,7 @@
   },
   "71401": {
     "sourcifyName": "Godwoken testnet v1.1",
-    "supported": true,
+    "supported": false,
     "fetchContractCreationTxUsing": {
       "blockscoutScrape": {
         "url": "https://gw-testnet-explorer.nervosdao.community/"
@@ -994,7 +1020,7 @@
   },
   "7701": {
     "sourcifyName": "Canto Testnet",
-    "supported": true,
+    "supported": false,
     "fetchContractCreationTxUsing": {
       "blockscoutApi": {
         "url": "https://testnet.tuber.build/"
@@ -1239,17 +1265,7 @@
   },
   "2522": {
     "sourcifyName": "Fraxtal Testnet",
-    "supported": true,
-    "etherscanApi": {
-      "supported": true,
-      "apiKeyEnvName": "ETHERSCAN_API_KEY_FRAXTAL"
-    },
-    "fetchContractCreationTxUsing": {
-      "etherscanApi": true,
-      "routescanApi": {
-        "type": "testnet"
-      }
-    }
+    "supported": false
   },
   "888": {
     "sourcifyName": "Wanchain Mainnet",
@@ -1277,12 +1293,7 @@
   },
   "1149": {
     "sourcifyName": "Symplexia Smart Chain",
-    "supported": true,
-    "fetchContractCreationTxUsing": {
-      "blockscoutScrape": {
-        "url": "https://explorer.plexfinance.us/"
-      }
-    }
+    "supported": false
   },
   "2000": {
     "sourcifyName": "DogeChain Mainnet",
@@ -1317,14 +1328,7 @@
   },
   "25": {
     "sourcifyName": "Cronos Mainnet Beta",
-    "supported": true,
-    "etherscanApi": {
-      "supported": true,
-      "apiKeyEnvName": "ETHERSCAN_API_KEY_CRONOS"
-    },
-    "fetchContractCreationTxUsing": {
-      "etherscanApi": true
-    }
+    "supported": true
   },
   "1339": {
     "sourcifyName": "Elysium Mainnet Chain",
@@ -1399,11 +1403,11 @@
   },
   "32770": {
     "sourcifyName": "Zilliqa 2 EVM proto-mainnet",
-    "supported": true
+    "supported": false
   },
   "33103": {
     "sourcifyName": "Zilliqa 2 EVM proto-testnet",
-    "supported": true
+    "supported": false
   },
   "2221": {
     "sourcifyName": "Kava EVM Testnet",
@@ -1484,7 +1488,7 @@
   },
   "2037": {
     "sourcifyName": "Kiwi Subnet",
-    "supported": true,
+    "supported": false,
     "fetchContractCreationTxUsing": {
       "avalancheApi": true
     }
@@ -1522,10 +1526,7 @@
   },
   "2038": {
     "sourcifyName": "Shrapnel Testnet",
-    "supported": true,
-    "fetchContractCreationTxUsing": {
-      "avalancheApi": true
-    }
+    "supported": false
   },
   "2044": {
     "sourcifyName": "Shrapnel Subnet",
@@ -1539,7 +1540,7 @@
   },
   "10242": {
     "sourcifyName": "Arthera Mainnet",
-    "supported": true,
+    "supported": false,
     "fetchContractCreationTxUsing": {
       "blockscoutApi": {
         "url": "https://explorer.arthera.net/"
@@ -1730,28 +1731,7 @@
   },
   "1101": {
     "sourcifyName": "Polygon zkEVM",
-    "supported": true,
-    "etherscanApi": {
-      "supported": true,
-      "apiKeyEnvName": "ETHERSCAN_API_KEY_ZKEVM_POLYGON"
-    },
-    "fetchContractCreationTxUsing": {
-      "blockscoutApi": {
-        "url": "https://zkevm.blockscout.com/"
-      },
-      "etherscanApi": true
-    },
-    "rpc": [
-      "https://zkevm-rpc.com",
-      "https://polygon-zkevm.drpc.org",
-      {
-        "type": "APIKeyRPC",
-        "url": "https://{SUBDOMAIN}.zkevm-mainnet.quiknode.pro/{API_KEY}",
-        "apiKeyEnvName": "QUICKNODE_API_KEY",
-        "subDomainEnvName": "QUICKNODE_SUBDOMAIN",
-        "traceSupport": "trace_transaction"
-      }
-    ]
+    "supported": false
   },
   "534352": {
     "sourcifyName": "Scroll",
@@ -1856,16 +1836,11 @@
   },
   "255": {
     "sourcifyName": "Kroma",
-    "supported": true,
-    "fetchContractCreationTxUsing": {
-      "blockscoutApi": {
-        "url": "https://blockscout.kroma.network/"
-      }
-    }
+    "supported": false
   },
   "2358": {
     "sourcifyName": "Kroma Sepolia",
-    "supported": true,
+    "supported": false,
     "fetchContractCreationTxUsing": {
       "blockscoutApi": {
         "url": "https://blockscout.sepolia.kroma.network/"
@@ -1905,14 +1880,11 @@
   },
   "710420": {
     "sourcifyName": "Tiltyard Mainnet",
-    "supported": true,
-    "fetchContractCreationTxUsing": {
-      "avalancheApi": true
-    }
+    "supported": false
   },
   "13381": {
     "sourcifyName": "Phoenix Mainnet",
-    "supported": true,
+    "supported": false,
     "fetchContractCreationTxUsing": {
       "blockscoutScrape": {
         "url": "https://phoenixplorer.com/"
@@ -1930,13 +1902,12 @@
   },
   "1291": {
     "sourcifyName": "Swisstronik Testnet",
-    "supported": true,
+    "supported": false,
     "fetchContractCreationTxUsing": {
       "blockscoutApi": {
         "url": "https://explorer-evm.testnet.swisstronik.com/"
       }
-    },
-    "rpc": ["https://json-rpc.testnet.swisstronik.com"]
+    }
   },
   "80002": {
     "sourcifyName": "Polygon Amoy Testnet",
@@ -1998,7 +1969,7 @@
   },
   "6321": {
     "sourcifyName": "Aura Euphoria Testnet",
-    "supported": true
+    "supported": false
   },
   "6322": {
     "sourcifyName": "Aura Xstaxy Mainnet",
@@ -2052,14 +2023,14 @@
   },
   "764984": {
     "sourcifyName": "Lamina1 Testnet",
-    "supported": true,
+    "supported": false,
     "fetchContractCreationTxUsing": {
       "avalancheApi": true
     }
   },
   "767368": {
     "sourcifyName": "Lamina1 Identity Testnet",
-    "supported": true,
+    "supported": false,
     "fetchContractCreationTxUsing": {
       "avalancheApi": true
     }
@@ -2166,6 +2137,10 @@
     "sourcifyName": "OORT Mainnet",
     "supported": true
   },
+  "9700": {
+    "sourcifyName": "OORT Testnet",
+    "supported": true
+  },
   "223": {
     "sourcifyName": "B2 Mainnet",
     "supported": true,
@@ -2177,24 +2152,7 @@
   },
   "2442": {
     "sourcifyName": "Polygon zkEVM Cardona Testnet",
-    "supported": true,
-    "etherscanApi": {
-      "supported": true,
-      "apiKeyEnvName": "ETHERSCAN_API_KEY_ZKEVM_POLYGON"
-    },
-    "fetchContractCreationTxUsing": {
-      "etherscanApi": true
-    },
-    "rpc": [
-      "https://rpc.cardona.zkevm-rpc.com",
-      {
-        "type": "APIKeyRPC",
-        "url": "https://{SUBDOMAIN}.zkevm-cardona.quiknode.pro/{API_KEY}",
-        "apiKeyEnvName": "QUICKNODE_API_KEY",
-        "subDomainEnvName": "QUICKNODE_SUBDOMAIN",
-        "traceSupport": "trace_transaction"
-      }
-    ]
+    "supported": false
   },
   "1088": {
     "sourcifyName": "Metis Andromeda Mainnet",
@@ -2237,15 +2195,15 @@
   },
   "48899": {
     "sourcifyName": "Zircuit Testnet",
-    "supported": true
+    "supported": false
   },
   "7171": {
     "sourcifyName": "Bitrock Mainnet",
-    "supported": true
+    "supported": false
   },
   "7771": {
     "sourcifyName": "Bitrock Testnet",
-    "supported": true
+    "supported": false
   },
   "1516": {
     "sourcifyName": "Story Odyssey",
@@ -2272,12 +2230,7 @@
   },
   "839999": {
     "sourcifyName": "exSat Testnet",
-    "supported": true,
-    "fetchContractCreationTxUsing": {
-      "blockscoutApi": {
-        "url": "https://scan-testnet.exsat.network"
-      }
-    }
+    "supported": false
   },
   "5115": {
     "sourcifyName": "Citrea Testnet",
@@ -2330,6 +2283,191 @@
     "fetchContractCreationTxUsing": {
       "blockscoutApi": {
         "url": "https://testnet.explorer.etherlink.com"
+      }
+    }
+  },
+  "3338": {
+    "sourcifyName": "peaq Mainnet",
+    "supported": true,
+    "fetchContractCreationTxUsing": {
+      "blockscoutApi": {
+        "url": "https://scout.peaq.xyz/"
+      }
+    }
+  },
+  "31612": {
+    "sourcifyName": "Mezo",
+    "supported": true,
+    "fetchContractCreationTxUsing": {
+      "blockscoutApi": {
+        "url": "https://explorer.mezo.org/"
+      }
+    }
+  },
+  "2206132": {
+    "sourcifyName": "PlatON Testnet",
+    "supported": true,
+    "fetchContractCreationTxUsing": {
+      "blockscoutApi": {
+        "url": "https://devnet2scan.platon.network"
+      }
+    }
+  },
+  "210425": {
+    "sourcifyName": "PlatON Mainnet",
+    "supported": true,
+    "fetchContractCreationTxUsing": {
+      "blockscoutApi": {
+        "url": "https://scan.platon.network"
+      }
+    }
+  },
+  "42429": {
+    "sourcifyName": "Tempo Testnet (Andantino)",
+    "supported": true,
+    "fetchContractCreationTxUsing": {
+      "blockscoutApi": {
+        "url": "https://scout.tempo.xyz/"
+      }
+    },
+    "rpc": [
+      {
+        "type": "APIKeyRPC",
+        "url": "https://tempo-testnet.g.alchemy.com/v2/{API_KEY}",
+        "apiKeyEnvName": "ALCHEMY_API_KEY"
+      },
+      {
+        "type": "APIKeyRPC",
+        "url": "https://{SUBDOMAIN}.tempo-testnet.quiknode.pro/{API_KEY}",
+        "apiKeyEnvName": "QUICKNODE_API_KEY",
+        "subDomainEnvName": "QUICKNODE_SUBDOMAIN",
+        "traceSupport": "trace_transaction"
+      },
+      "https://rpc.testnet.tempo.xyz"
+    ]
+  },
+  "42431": {
+    "sourcifyName": "Tempo Testnet (Moderato)",
+    "supported": true,
+    "fetchContractCreationTxUsing": {
+      "blockscoutApi": {
+        "url": "https://explore.tempo.xyz/"
+      }
+    },
+    "rpc": ["https://rpc.moderato.tempo.xyz"]
+  },
+  "1868": {
+    "sourcifyName": "Soneium",
+    "supported": true,
+    "fetchContractCreationTxUsing": {
+      "blockscoutApi": {
+        "url": "https://soneium.blockscout.com/"
+      }
+    },
+    "rpc": [
+      {
+        "type": "APIKeyRPC",
+        "url": "https://{SUBDOMAIN}.soneium-mainnet.quiknode.pro/{API_KEY}",
+        "apiKeyEnvName": "QUICKNODE_API_KEY",
+        "subDomainEnvName": "QUICKNODE_SUBDOMAIN",
+        "traceSupport": "trace_transaction"
+      }
+    ]
+  },
+  "480": {
+    "sourcifyName": "WorldChain",
+    "supported": true,
+    "etherscanApi": {
+      "supported": true,
+      "apiKeyEnvName": "ETHERSCAN_API_KEY_WORLDCHAIN"
+    },
+    "fetchContractCreationTxUsing": {
+      "etherscanApi": true
+    },
+    "rpc": [
+      {
+        "type": "APIKeyRPC",
+        "url": "https://worldchain-mainnet.g.alchemy.com/v2/{API_KEY}",
+        "apiKeyEnvName": "ALCHEMY_API_KEY"
+      }
+    ]
+  },
+  "146": {
+    "sourcifyName": "Sonic Mainnet",
+    "supported": true,
+    "etherscanApi": {
+      "supported": true,
+      "apiKeyEnvName": "ETHERSCAN_API_KEY_SONIC"
+    },
+    "fetchContractCreationTxUsing": {
+      "etherscanApi": true
+    }
+  },
+  "1597": {
+    "sourcifyName": "Reactive Network Mainnet",
+    "supported": true,
+    "fetchContractCreationTxUsing": {
+      "etherscanApi": false,
+      "blockscoutApi": {
+        "url": "https://mainnet-api.reactscan.net"
+      }
+    }
+  },
+  "5042002": {
+    "sourcifyName": "ARC-testnet",
+    "supported": true,
+    "fetchContractCreationTxUsing": {
+      "blockscoutApi": {
+        "url": "https://testnet.arcscan.app/"
+      }
+    },
+    "rpc": [
+      {
+        "type": "APIKeyRPC",
+        "url": "https://rpc.quicknode.testnet.arc.network/{API_KEY}",
+        "apiKeyEnvName": "QUICKNODE_API_KEY",
+        "subDomainEnvName": "QUICKNODE_SUBDOMAIN",
+        "traceSupport": "trace_transaction"
+      }
+    ]
+  },
+  "1328": {
+    "sourcifyName": "Sei Testnet",
+    "supported": true,
+    "etherscanApi": {
+      "supported": true,
+      "apiKeyEnvName": "ETHERSCAN_API_KEY_SEI"
+    },
+    "fetchContractCreationTxUsing": {
+      "etherscanApi": true
+    }
+  },
+  "1329": {
+    "sourcifyName": "Sei Network",
+    "supported": true,
+    "etherscanApi": {
+      "supported": true,
+      "apiKeyEnvName": "ETHERSCAN_API_KEY_SEI"
+    },
+    "fetchContractCreationTxUsing": {
+      "etherscanApi": true
+    }
+  },
+  "2019775": {
+    "sourcifyName": "Jovay Sepolia Testnet",
+    "supported": true,
+    "fetchContractCreationTxUsing": {
+      "blockscoutApi": {
+        "url": "https://sepolia-explorer.jovay.io"
+      }
+    }
+  },
+  "5734951": {
+    "sourcifyName": "Jovay Mainnet",
+    "supported": true,
+    "fetchContractCreationTxUsing": {
+      "blockscoutApi": {
+        "url": "https://explorer.jovay.io"
       }
     }
   }

@@ -2,6 +2,68 @@
 
 All notable changes to this project will be documented in this file.
 
+## sourcify-monitor@1.4.0 - 2026-01-07
+
+- Implement similarity verification in Monitor (#2539)
+
+
+## sourcify-monitor@1.3.26 - 2025-12-15
+
+- Update dependencies
+
+## sourcify-monitor@1.3.25 - 2025-11-19
+
+- update dependencies
+- Turn @typescript-eslint/consistent-type-imports rule on (#2496)
+
+## sourcify-monitor@1.3.24 - 2025-11-04
+
+- update dependencies
+
+## sourcify-monitor@1.3.23 - 2025-10-30
+
+- Fix blocked rpcs after querying unpublished blocks (#2473)
+- Disable Holesky Testnet because of deprecation (#2477)
+
+## sourcify-monitor@1.3.22 - 2025-10-28
+
+- update dependencies
+
+## sourcify-monitor@1.3.21 - 2025-10-16
+
+- Use updated SourcifyChain() interface
+- Remove Celo testnets from monitored chains
+- Update dependencies
+
+## sourcify-monitor@1.3.20 - 2025-09-18
+
+- Replace Blast API with Alchemy, add Celo Sepolia (#2372)
+- Update Docker image references to argotorg in README and docker-compose files (#2332)
+
+## sourcify-monitor@1.3.19 - 2025-08-25
+
+- Update dependencies
+
+## sourcify-monitor@1.3.18 - 2025-08-12
+
+- Update Dockerfiles from Bullseye to Bookworm for Vyper compiler compatibility (#2289)
+
+## sourcify-monitor@1.3.17 - 2025-08-11
+
+- update dependencies
+
+## sourcify-monitor@1.3.16 - 2025-08-04
+
+- update dependencies
+
+## sourcify-monitor@1.3.15 - 2025-07-09
+
+- update dependencies
+
+## sourcify-monitor@1.3.14 - 2025-06-18
+
+- Update packages
+
 ## sourcify-monitor@1.3.13 - 2025-05-20
 
 - update dependencies
@@ -39,7 +101,6 @@ All notable changes to this project will be documented in this file.
 ## sourcify-monitor@1.3.5 - 2025-01-08
 
 - Update dependencies
-
 
 ## sourcify-monitor@1.3.4 - 2024-12-11
 
@@ -157,4 +218,4 @@ This was a total rewrite of the sourcify-monitor as a completely isolated module
 ## Older releases
 
 Previously, the releases were not done one separate modules of Sourcify but for the repository as a whole.
-You can find the changelog for those releases in [older releases](https://github.com/ethereum/sourcify/releases) for this repository.
+You can find the changelog for those releases in [older releases](https://github.com/argotorg/sourcify/releases) for this repository.

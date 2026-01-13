@@ -1,14 +1,12 @@
 import DecentralizedStorageFetcher from "./DecentralizedStorageFetcher";
 import assert from "assert";
 import { EventEmitter } from "stream";
-import {
-  FetchRequestRPC,
-  SourcifyChain,
-} from "@ethereum-sourcify/lib-sourcify";
+import type { FetchRequestRPC } from "@ethereum-sourcify/lib-sourcify";
+import { SourcifyChain } from "@ethereum-sourcify/lib-sourcify";
 import logger from "./logger";
 import "./loggerServer"; // Start the dynamic log level server
 import ChainMonitor from "./ChainMonitor";
-import {
+import type {
   KnownDecentralizedStorageFetchers,
   MonitorChain,
   MonitorConfig,
@@ -17,6 +15,7 @@ import {
 import dotenv from "dotenv";
 import defaultConfig from "./defaultConfig";
 import path from "path";
+import SimilarityVerificationClient from "./SimilarityVerificationClient";
 
 dotenv.config({ path: path.resolve(__dirname, "..", ".env") });
 
@@ -24,6 +23,7 @@ export default class Monitor extends EventEmitter {
   private chainMonitors: ChainMonitor[];
   private sourceFetchers: KnownDecentralizedStorageFetchers = {};
   private config: MonitorConfig;
+  private similarityVerificationClient: SimilarityVerificationClient;
 
   constructor(
     chainsToMonitor: MonitorChain[],
@@ -55,13 +55,23 @@ export default class Monitor extends EventEmitter {
       );
     }
 
+    const similarityBaseUrls = this.config.sourcifyServerURLs
+      .map((url) => url.replace(/\/+$/, ""))
+      .filter(Boolean);
+    this.similarityVerificationClient = new SimilarityVerificationClient(
+      similarityBaseUrls,
+      this.config.similarityVerification,
+    );
+
     const sourcifyChains = chainsToMonitor.map((chain) => {
       if (chain instanceof SourcifyChain) {
         return chain;
       } else {
         return new SourcifyChain({
           chainId: chain.chainId,
-          rpc: authenticateRpcs(chain),
+          rpcs: authenticateRpcs(chain).map((rpc) => ({
+            rpc,
+          })),
           name: chain.name,
           supported: true,
         });
@@ -100,7 +110,13 @@ export default class Monitor extends EventEmitter {
     }
 
     this.chainMonitors = sourcifyChains.map(
-      (chain) => new ChainMonitor(chain, this.sourceFetchers, this.config),
+      (chain) =>
+        new ChainMonitor(
+          chain,
+          this.sourceFetchers,
+          this.config,
+          this.similarityVerificationClient,
+        ),
     );
   }
 

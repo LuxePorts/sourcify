@@ -1,8 +1,12 @@
 import chai from "chai";
-import { getCreatorTx } from "../../../src/server/services/utils/contract-creation-util";
+import {
+  BINARY_SEARCH_TIMEOUT_MS,
+  findContractCreationTxByBinarySearchWithTimeout,
+  getCreatorTx,
+} from "../../../src/server/services/utils/contract-creation-util";
 import { sourcifyChainsMap } from "../../../src/sourcify-chains";
 import { ChainRepository } from "../../../src/sourcify-chain-repository";
-import { FetchContractCreationTxMethod } from "@ethereum-sourcify/lib-sourcify";
+import type { FetchContractCreationTxMethod } from "@ethereum-sourcify/lib-sourcify";
 import sinon from "sinon";
 import { SourcifyChain } from "@ethereum-sourcify/lib-sourcify";
 import { findContractCreationTxByBinarySearch } from "../../../src/server/services/utils/contract-creation-util";
@@ -46,26 +50,6 @@ describe("contract creation util", function () {
   //       "0xb1af0ec1283551480ae6e6ce374eb4fa7d1803109b06657302623fc65c987420"
   //     );
   // });
-
-  it("should run getCreatorTx with chainId 83", async function () {
-    const sourcifyChainsArray = new ChainRepository(sourcifyChainsMap)
-      .sourcifyChainsArray;
-    const sourcifyChain = sourcifyChainsArray.find(
-      (sourcifyChain) => sourcifyChain.chainId === 83,
-    );
-    if (!sourcifyChain) {
-      chai.assert.fail("No chain for chainId 83 configured");
-    }
-    const creatorTx = await getCreatorTx(
-      sourcifyChain,
-      "0x89e772941d94Ef4BDA1e4f68E79B4bc5F6096389",
-    );
-    chai
-      .expect(creatorTx)
-      .equals(
-        "0x8cc7b0fb66eaf7b32bac7b7938aedfcec6d49f9fe607b8008a5541e72d264069",
-      );
-  });
 
   it("should run getCreatorTx with chainId 335", async function () {
     const sourcifyChainsArray = new ChainRepository(sourcifyChainsMap)
@@ -236,6 +220,7 @@ describe("contract creation util", function () {
 
   describe("findContractCreationTxByBinarySearch", function () {
     let mockSourcifyChain: SourcifyChain;
+    const sandbox = sinon.createSandbox();
 
     beforeEach(() => {
       // Create a mock SourcifyChain instance
@@ -246,6 +231,10 @@ describe("contract creation util", function () {
         getTxReceipt: sinon.stub(),
         chainId: 1,
       } as any;
+    });
+
+    afterEach(() => {
+      sandbox.restore();
     });
 
     // Not a unit test fetches from live chain, but it's useful for debugging
@@ -417,6 +406,26 @@ describe("contract creation util", function () {
         contractAddress,
       );
 
+      chai.expect(result).to.be.null;
+    });
+
+    it("should timeout when binary search takes too long", async function () {
+      const clock = sandbox.useFakeTimers();
+      const contractAddress = "0x1234567890123456789012345678901234567890";
+
+      // This will never resolve, forcing the timeout to trigger
+      (mockSourcifyChain.getBlockNumber as sinon.SinonStub).returns(
+        new Promise(() => {}),
+      );
+
+      const resultPromise = findContractCreationTxByBinarySearchWithTimeout(
+        mockSourcifyChain,
+        contractAddress,
+      );
+
+      await clock.tickAsync(BINARY_SEARCH_TIMEOUT_MS);
+
+      const result = await resultPromise;
       chai.expect(result).to.be.null;
     });
   });

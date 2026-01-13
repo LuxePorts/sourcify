@@ -1,25 +1,22 @@
 import config from "config";
-import {
-  ContractFactory,
-  Wallet,
+import type {
   JsonRpcSigner,
-  Interface,
-  InterfaceAbi,
+  JsonFragment,
   JsonRpcProvider,
   BytesLike,
-  Contract,
 } from "ethers";
+import { ContractFactory, Wallet, Contract } from "ethers";
 import { assertVerificationSession, assertVerification } from "./assertions";
-import chai from "chai";
+import chai, { expect } from "chai";
 import chaiHttp from "chai-http";
 import path from "path";
 import { promises as fs, readFileSync } from "fs";
-import { ServerFixture } from "./ServerFixture";
+import type { ServerFixture } from "./ServerFixture";
 import type { Done } from "mocha";
-import { LocalChainFixture } from "./LocalChainFixture";
-import { Pool } from "pg";
+import type { LocalChainFixture } from "./LocalChainFixture";
+import type { Pool } from "pg";
 import sinon from "sinon";
-import { VerificationStatus } from "@ethereum-sourcify/lib-sourcify";
+import type { VerificationStatus } from "@ethereum-sourcify/lib-sourcify";
 
 chai.use(chaiHttp);
 
@@ -29,7 +26,7 @@ export const unsupportedChain = "3"; // Ropsten
 
 export async function deployFromAbiAndBytecode(
   signer: JsonRpcSigner,
-  abi: Interface | InterfaceAbi,
+  abi: JsonFragment[],
   bytecode: BytesLike | { object: string },
   args?: any[],
 ) {
@@ -56,11 +53,11 @@ export type DeploymentInfo = {
  */
 export async function deployFromAbiAndBytecodeForCreatorTxHash(
   signer: JsonRpcSigner,
-  abi: Interface | InterfaceAbi,
+  abi: JsonFragment[] | undefined,
   bytecode: BytesLike | { object: string },
   args?: any[],
 ): Promise<DeploymentInfo> {
-  const contractFactory = new ContractFactory(abi, bytecode, signer);
+  const contractFactory = new ContractFactory(abi || [], bytecode, signer);
   console.log(`Deploying contract ${args?.length ? `with args ${args}` : ""}`);
   const deployment = await contractFactory.deploy(...(args || []));
   await deployment.waitForDeployment();
@@ -94,7 +91,7 @@ export async function verifyContract(
   creatorTxHash?: string,
   partial: boolean = false,
 ) {
-  await chai
+  const res = await chai
     .request(serverFixture.server.app)
     .post("/")
     .field("address", contractAddress || chainFixture.defaultContractAddress)
@@ -116,6 +113,17 @@ export async function verifyContract(
         ? chainFixture.defaultContractModifiedSource
         : chainFixture.defaultContractSource,
     );
+  expect(
+    res.status,
+    `Verification failed for ${contractAddress} on chain ${chainFixture.chainId}`,
+  ).to.equal(200);
+  expect(res.body.result.length).to.equal(1);
+  expect(res.body.result[0].status).to.equal(partial ? "partial" : "perfect");
+  expect(res.body.result[0].chainId).to.equal(chainFixture.chainId);
+  if (contractAddress) {
+    expect(res.body.result[0].address).to.equal(contractAddress);
+  }
+  return res;
 }
 
 export async function deployAndVerifyContract(
@@ -145,7 +153,7 @@ export async function deployAndVerifyContract(
  */
 export async function deployFromPrivateKey(
   provider: JsonRpcProvider,
-  abi: Interface | InterfaceAbi,
+  abi: JsonFragment[],
   bytecode: BytesLike | { object: string },
   privateKey: string,
   args?: any[],
@@ -173,7 +181,7 @@ export function waitSecs(secs = 0) {
 // Uses staticCall which does not send a tx i.e. change the state.
 export async function callContractMethod(
   provider: JsonRpcProvider,
-  abi: Interface | InterfaceAbi,
+  abi: JsonFragment[],
   contractAddress: string,
   methodName: string,
   args: any[],
@@ -187,7 +195,7 @@ export async function callContractMethod(
 // Sends a tx that changes the state
 export async function callContractMethodWithTx(
   signer: JsonRpcSigner,
-  abi: Interface | InterfaceAbi,
+  abi: JsonFragment[],
   contractAddress: string,
   methodName: string,
   args: any[],
@@ -279,8 +287,13 @@ export async function resetDatabase(sourcifyDatabase: Pool) {
   await sourcifyDatabase.query(
     "ALTER SEQUENCE sourcify_matches_id_seq RESTART WITH 1",
   );
+  await sourcifyDatabase.query(
+    "ALTER SEQUENCE verified_contracts_id_seq RESTART WITH 1",
+  );
   await sourcifyDatabase.query("DELETE FROM verified_contracts");
   await sourcifyDatabase.query("DELETE FROM contract_deployments");
+  await sourcifyDatabase.query("DELETE FROM compiled_contracts_signatures");
+  await sourcifyDatabase.query("DELETE FROM signatures");
   await sourcifyDatabase.query("DELETE FROM compiled_contracts_sources");
   await sourcifyDatabase.query("DELETE FROM sources");
   await sourcifyDatabase.query("DELETE FROM compiled_contracts");

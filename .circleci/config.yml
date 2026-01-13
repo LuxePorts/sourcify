@@ -28,9 +28,9 @@ workflows:
       and:
         - not: << pipeline.parameters.run-nightly >>
         - not: << pipeline.parameters.run-test-chains-regularly >>
-        - or: 
-          - equal: [ master, << pipeline.git.branch >> ]
-          - equal: [ staging, << pipeline.git.branch >> ]
+        - or:
+            - equal: [master, << pipeline.git.branch >>]
+            - equal: [staging, << pipeline.git.branch >>]
     jobs:
       # the path-filtering/filter job determines which pipeline parameters to update.
       - path-filtering/filter:
@@ -38,6 +38,7 @@ workflows:
           mapping: |
             services/monitor/.* run-build-monitor true
             services/server/.* run-build-server true
+            services/4byte/.* run-build-4byte true
             packages/.* run-build-packages true
           # Compare against the last build of the branch not the default "main" branch
           base-revision: << pipeline.git.base_revision >>
@@ -82,6 +83,22 @@ workflows:
               ignore: /.*/
           requires:
             - npm-publish
+      - build-push-4byte-amd64:
+          filters:
+            tags:
+              only: /^sourcify-4byte.*/
+            branches:
+              ignore: /.*/
+          requires:
+            - npm-publish
+      - build-push-4byte-arm64:
+          filters:
+            tags:
+              only: /^sourcify-4byte.*/
+            branches:
+              ignore: /.*/
+          requires:
+            - npm-publish
       - publish-multiarch-images:
           filters:
             tags:
@@ -91,21 +108,26 @@ workflows:
           requires:
             - build-push-monitor-amd64
             - build-push-server-amd64
+            - build-push-4byte-amd64
             - build-push-monitor-arm64
             - build-push-server-arm64
+            - build-push-4byte-arm64
   new-branch:
     when:
       and:
-          - not: << pipeline.parameters.run-nightly >>
-          - not: << pipeline.parameters.run-test-chains-regularly >>
-          - not:
-              equal: [ master, << pipeline.git.branch >> ]
-          - not:
-              equal: [ staging, << pipeline.git.branch >> ]
+        - not: << pipeline.parameters.run-nightly >>
+        - not: << pipeline.parameters.run-test-chains-regularly >>
+        - not:
+            equal: [master, << pipeline.git.branch >>]
+        - not:
+            equal: [staging, << pipeline.git.branch >>]
     jobs:
-      - continuation/continue:
-          name: continue-new-branch
-          configuration_path: .circleci/new_branch.yml
+      - path-filtering/filter:
+          name: check-updated-modules-new-branch
+          mapping: |
+            services/database/.* run-validate-database-schema true
+          base-revision: staging
+          config-path: .circleci/new_branch.yml
 
   nightly:
     when: << pipeline.parameters.run-nightly >>
@@ -116,11 +138,10 @@ workflows:
 
   test-chains-regularly:
     when: << pipeline.parameters.run-test-chains-regularly >>
-    jobs: 
+    jobs:
       - continuation/continue:
           name: continue-test-chains-regularly
           configuration_path: .circleci/test-chains-regularly.yml
-
 
 # Different than the one on continue_config.yml, this one DOES NOT persist the workspace and trigger a deploy job.
 aliases:
@@ -148,8 +169,8 @@ aliases:
       - run:
           name: Build and push docker images
           command: |
-            ./.circleci/scripts/build_and_publish_docker_images.sh 
-      # If no build is needed, echo 0 to run as success 
+            ./.circleci/scripts/build_and_publish_docker_images.sh
+      # If no build is needed, echo 0 to run as success
       - run: echo 0
   - &build-base-arm64
     <<: *build-base
@@ -168,6 +189,12 @@ jobs:
       SERVICE: "server"
       DOCKER_BUILD_CONTEXT: "."
       DOCKERFILE: "services/server/Dockerfile"
+  build-push-4byte-amd64:
+    <<: *build-base
+    environment:
+      SERVICE: "4byte"
+      DOCKER_BUILD_CONTEXT: "."
+      DOCKERFILE: "services/4byte/Dockerfile"
   # ARM64 builds
   build-push-monitor-arm64:
     <<: *build-base-arm64
@@ -181,6 +208,12 @@ jobs:
       SERVICE: "server"
       DOCKER_BUILD_CONTEXT: "."
       DOCKERFILE: "services/server/Dockerfile"
+  build-push-4byte-arm64:
+    <<: *build-base-arm64
+    environment:
+      SERVICE: "4byte"
+      DOCKER_BUILD_CONTEXT: "."
+      DOCKERFILE: "services/4byte/Dockerfile"
   publish-multiarch-images:
     docker:
       - image: cimg/base:2024.12
@@ -200,13 +233,6 @@ jobs:
       - image: cimg/node:22.5.1
     steps:
       - checkout
-      - run:
-          name: Check Tag Prefix
-          command: |
-            if [[ "$CIRCLE_TAG" != "@ethereum-sourcify"* ]]; then
-              echo "Skipping npm-publish as tag does not start with @ethereum-sourcify"
-              circleci-agent step halt
-            fi
       - run:
           name: install dependencies
           command: npm install

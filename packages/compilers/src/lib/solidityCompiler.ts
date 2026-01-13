@@ -3,10 +3,11 @@ import path from 'path';
 import fs from 'fs';
 import { spawnSync } from 'child_process';
 import semver from 'semver';
-import { Worker, WorkerOptions } from 'worker_threads';
+import type { WorkerOptions } from 'worker_threads';
+import { Worker } from 'worker_threads';
 import { logDebug, logError, logInfo, logWarn } from '../logger';
 import { asyncExec, CompilerError, fetchWithBackoff } from './common';
-import {
+import type {
   SolidityJsonInput,
   SolidityOutput,
 } from '@ethereum-sourcify/compilers-types';
@@ -91,7 +92,7 @@ export async function useSolidityCompiler(
     if (solJson) {
       const coercedVersion =
         semver.coerce(new semver.SemVer(version))?.version ?? '';
-      // Run Worker for solc versions < 0.4.0 for clean compiler context. See https://github.com/ethereum/sourcify/issues/1099
+      // Run Worker for solc versions < 0.4.0 for clean compiler context. See https://github.com/argotorg/sourcify/issues/1099
       if (semver.lt(coercedVersion, '0.4.0')) {
         compiled = await new Promise((resolve, reject) => {
           const worker = importWorker(

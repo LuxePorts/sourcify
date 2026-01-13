@@ -1,37 +1,34 @@
-import { AbstractCompilation } from '../Compilation/AbstractCompilation';
+import type { AbstractCompilation } from '../Compilation/AbstractCompilation';
 import { logDebug, logInfo, logWarn } from '../logger';
-import { SourcifyChain } from '../SourcifyChain/SourcifyChain';
+import type { SourcifyChain } from '../SourcifyChain/SourcifyChain';
 import { lt } from 'semver';
+import type { SolidityDecodedObject } from '@ethereum-sourcify/bytecode-utils';
 import {
   splitAuxdata,
   AuxdataStyle,
   decode as decodeBytecode,
-  SolidityDecodedObject,
 } from '@ethereum-sourcify/bytecode-utils';
-import { SolidityCompilation } from '../Compilation/SolidityCompilation';
-import { VyperCompilation } from '../Compilation/VyperCompilation';
-import {
+import type {
   CompiledContractCborAuxdata,
+  ISolidityCompiler,
   StringMap,
 } from '../Compilation/CompilationTypes';
 
+import type { Transformation, TransformationValues } from './Transformations';
 import {
   extractAuxdataTransformation,
   extractCallProtectionTransformation,
   extractConstructorArgumentsTransformation,
   extractImmutablesTransformation,
   extractLibrariesTransformation,
-  Transformation,
-  TransformationValues,
 } from './Transformations';
-import {
+import type {
   BytecodeMatchingResult,
-  SolidityBugType,
-  VerificationError,
   VerificationExport,
   VerificationStatus,
 } from './VerificationTypes';
-import {
+import { SolidityBugType, VerificationError } from './VerificationTypes';
+import type {
   VyperOutputContract,
   ImmutableReferences,
   SolidityOutputContract,
@@ -112,29 +109,56 @@ export class Verification {
     }
 
     // Early bytecode length check:
-    // - For Solidity: bytecode lengths must match exactly
+    // - For Solidity: bytecode lengths must match exactly, except for extra file input bug or no metadata onchain
     // - For Vyper: recompiled bytecode must not be longer than onchain as Vyper appends immutables at deployment
     // We cannot do an early check for creation bytecode length mismatch because
     // creation bytecode length can differ due to constructor arguments being appended at the end
     if (
-      (this.compilation instanceof SolidityCompilation &&
-        compiledRuntimeBytecode.length !==
-          this.onchainRuntimeBytecode.length) ||
-      (this.compilation instanceof VyperCompilation &&
-        compiledRuntimeBytecode.length > this.onchainRuntimeBytecode.length)
+      this.compilation.language === 'Vyper' &&
+      compiledRuntimeBytecode.length > this.onchainRuntimeBytecode.length
     ) {
-      // Before throwing the bytecode length mismatch error, check for Solidity extra file input bug
-      if (this.compilation instanceof SolidityCompilation) {
-        const solidityBugType = this.handleSolidityExtraFileInputBug();
-        if (solidityBugType === SolidityBugType.EXTRA_FILE_INPUT_BUG) {
-          throw new VerificationError({
-            code: 'extra_file_input_bug',
-          });
-        }
-      }
       throw new VerificationError({
         code: 'bytecode_length_mismatch',
       });
+    }
+    if (
+      this.compilation.language === 'Solidity' &&
+      compiledRuntimeBytecode.length !== this.onchainRuntimeBytecode.length
+    ) {
+      // Before throwing the bytecode length mismatch error, check for Solidity extra file input bug
+      const solidityBugType = this.handleSolidityExtraFileInputBug();
+      if (solidityBugType === SolidityBugType.EXTRA_FILE_INPUT_BUG) {
+        throw new VerificationError({
+          code: 'extra_file_input_bug',
+        });
+      }
+
+      // Before throwing the bytecode length mismatch error, check if onchain bytecode has no Solidity metadata
+      // If the onchain bytecode has no metadata, we can still verify it as a partial match
+      // See https://github.com/argotorg/sourcify/issues/2374
+      let noSolidityMetadataInOnchainBytecode = false;
+      try {
+        const decodedOnchainAuxdata = decodeBytecode(
+          this.onchainRuntimeBytecode,
+          AuxdataStyle.SOLIDITY,
+        );
+        if (
+          !decodedOnchainAuxdata.ipfs &&
+          !decodedOnchainAuxdata.bzzr0 &&
+          !decodedOnchainAuxdata.bzzr1
+        ) {
+          noSolidityMetadataInOnchainBytecode = true;
+        }
+      } catch (err: any) {
+        // If decoding fails, assume no metadata is present
+        noSolidityMetadataInOnchainBytecode = true;
+      }
+      // If there is no Solidity metadata in onchain bytecode, we can proceed with verification as a partial match
+      if (!noSolidityMetadataInOnchainBytecode) {
+        throw new VerificationError({
+          code: 'bytecode_length_mismatch',
+        });
+      }
     }
 
     // We need to manually generate the auxdata positions because they are not automatically produced during compilation
@@ -162,7 +186,7 @@ export class Verification {
     }
 
     if (
-      this.compilation instanceof SolidityCompilation &&
+      this.compilation.language === 'Solidity' &&
       this.runtimeMatch === null
     ) {
       // Handle Solidity extra file input bug
@@ -254,7 +278,7 @@ export class Verification {
         AuxdataStyle.SOLIDITY,
       );
       if (
-        this.compilation instanceof SolidityCompilation &&
+        this.compilation.language === 'Solidity' &&
         onchainAuxdata !== recompiledAuxdata
       ) {
         const solidityMetadataContract = new SolidityMetadataContract(
@@ -270,7 +294,7 @@ export class Verification {
           )
         ) {
           this.compilation = await solidityMetadataContract.createCompilation(
-            this.compilation.compiler,
+            this.compilation.compiler as ISolidityCompiler,
           );
           await this.compilation.compile(forceEmscripten);
         }
@@ -283,9 +307,9 @@ export class Verification {
   handleSolidityExtraFileInputBug(): SolidityBugType {
     // Case when extra unused files in compiler input cause different bytecode
     // See issues:
-    //   https://github.com/ethereum/sourcify/issues/618
-    //   https://github.com/ethereum/solidity/issues/14250
-    //   https://github.com/ethereum/solidity/issues/14494
+    //   https://github.com/argotorg/sourcify/issues/618
+    //   https://github.com/argotorg/solidity/issues/14250
+    //   https://github.com/argotorg/solidity/issues/14494
     const [, deployedAuxdata] = splitAuxdata(
       this.onchainRuntimeBytecode,
       AuxdataStyle.SOLIDITY,
@@ -313,7 +337,7 @@ export class Verification {
 
     // Handle when <0.8.21 and with viaIR and with optimizer disabled
     // See issues:
-    //   https://github.com/ethereum/sourcify/issues/1088
+    //   https://github.com/argotorg/sourcify/issues/1088
     if (
       !forceEmscripten && // Enter this case only if we are not already forcing Emscripten
       lt(this.compilation.compilerVersion, '0.8.21') &&
@@ -493,7 +517,7 @@ export class Verification {
         extractConstructorArgumentsTransformation(
           matchBytecodesResult.populatedRecompiledBytecode,
           this.onchainCreationBytecode,
-          this.compilation.metadata,
+          this.compilation.contractCompilerOutput?.abi || [],
         );
       this.creationTransformations = [
         ...matchBytecodesResult.transformations,

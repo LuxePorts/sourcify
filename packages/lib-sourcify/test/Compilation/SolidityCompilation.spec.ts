@@ -4,8 +4,9 @@ import path from 'path';
 import fs from 'fs';
 import { SolidityCompilation } from '../../src/Compilation/SolidityCompilation';
 import { solc } from '../utils';
-import { CompilationTarget } from '../../src/Compilation/CompilationTypes';
-import {
+import type { CompilationTarget } from '../../src/Compilation/CompilationTypes';
+import { CompilationError } from '../../src/Compilation/CompilationTypes';
+import type {
   SolidityJsonInput,
   Metadata,
 } from '@ethereum-sourcify/compilers-types';
@@ -324,5 +325,136 @@ describe('SolidityCompilation', () => {
     await compilation.compile();
     const immutableRefs = compilation.immutableReferences;
     expect(immutableRefs).to.deep.equal({ '3': [{ length: 32, start: 608 }] });
+  });
+
+  it('should clean compiler version with v prefix', () => {
+    const contractPath = path.join(__dirname, '..', 'sources', 'Storage');
+    const metadata = JSON.parse(
+      fs.readFileSync(path.join(contractPath, 'metadata.json'), 'utf8'),
+    );
+    const sources = {
+      'project:/contracts/Storage.sol': {
+        content: fs.readFileSync(
+          path.join(contractPath, 'sources', 'Storage.sol'),
+          'utf8',
+        ),
+      },
+    };
+
+    const compilation = new SolidityCompilation(
+      solc,
+      'v0.8.4+commit.c7e474f2',
+      {
+        language: 'Solidity',
+        sources,
+        settings: getSolcSettingsFromMetadata(metadata),
+      },
+      getCompilationTargetFromMetadata(metadata),
+    );
+
+    expect(compilation.compilerVersion).to.equal('0.8.4+commit.c7e474f2');
+  });
+
+  // Contracts before 0.4.12 don't have `auxdata` in `legacyAssembly`
+  // https://github.com/argotorg/sourcify/issues/2217
+  it('should handle legacy Solidity 0.4.11 contracts with auxdata correctly', async () => {
+    const contractPath = path.join(__dirname, '..', 'sources', 'pre-0.4.11');
+    const sources = {
+      'Multidrop.sol': {
+        content: fs.readFileSync(
+          path.join(contractPath, 'Multidrop.sol'),
+          'utf8',
+        ),
+      },
+    };
+
+    const solcJsonInput: SolidityJsonInput = {
+      language: 'Solidity',
+      sources,
+      settings: {
+        optimizer: {
+          enabled: false,
+          runs: 200,
+        },
+        outputSelection: {
+          '*': {
+            '*': ['*'],
+          },
+        },
+      },
+    };
+
+    const compilation = new SolidityCompilation(
+      solc,
+      '0.4.11+commit.68ef5810', // Solidity 0.4.11
+      solcJsonInput,
+      {
+        name: 'Multidrop',
+        path: 'Multidrop.sol',
+      },
+    );
+
+    await compilation.compile();
+    await compilation.generateCborAuxdataPositions();
+
+    // For Solidity 0.4.11, auxdata should be extracted from bytecode directly
+    // The auxdata positions should be calculated correctly even though legacyAssembly doesn't have .auxdata field
+    expect(compilation.runtimeBytecodeCborAuxdata).to.not.deep.equal({});
+    expect(compilation.creationBytecodeCborAuxdata).to.not.deep.equal({});
+
+    // Verify that auxdata positions are properly structured
+    if (Object.keys(compilation.runtimeBytecodeCborAuxdata).length > 0) {
+      expect(compilation.runtimeBytecodeCborAuxdata['1']).to.have.property(
+        'offset',
+      );
+      expect(compilation.runtimeBytecodeCborAuxdata['1']).to.have.property(
+        'value',
+      );
+      expect(compilation.runtimeBytecodeCborAuxdata['1'].value).to.match(
+        /^0x[a-fA-F0-9]+$/,
+      );
+    }
+
+    if (Object.keys(compilation.creationBytecodeCborAuxdata).length > 0) {
+      expect(compilation.creationBytecodeCborAuxdata['1']).to.have.property(
+        'offset',
+      );
+      expect(compilation.creationBytecodeCborAuxdata['1']).to.have.property(
+        'value',
+      );
+      expect(compilation.creationBytecodeCborAuxdata['1'].value).to.match(
+        /^0x[a-fA-F0-9]+$/,
+      );
+    }
+  });
+
+  it('should throw CompilationError for unsupported compiler versions < 0.4.11', () => {
+    const contractPath = path.join(__dirname, '..', 'sources', 'pre-0.4.11');
+    const sources = {
+      'Simple.sol': {
+        content: fs.readFileSync(path.join(contractPath, 'Simple.sol'), 'utf8'),
+      },
+    };
+
+    const solcJsonInput: SolidityJsonInput = {
+      language: 'Solidity',
+      sources,
+      settings: {
+        outputSelection: {
+          '*': {
+            '*': ['*'],
+          },
+        },
+      },
+    };
+
+    expect(() => {
+      new SolidityCompilation(solc, '0.4.6+commit.2dabbdf0', solcJsonInput, {
+        name: 'Simple',
+        path: 'Simple.sol',
+      });
+    })
+      .to.throw(CompilationError)
+      .with.property('code', 'unsupported_compiler_version');
   });
 });

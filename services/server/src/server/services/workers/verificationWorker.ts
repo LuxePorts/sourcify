@@ -1,16 +1,18 @@
 import Piscina from "piscina";
-import {
-  SolidityJsonInput,
-  VyperJsonInput,
+import type {
+  SourcifyChainInstance,
+  SourcifyChainMap,
+  AnyCompilation,
   SolidityCompilation,
   VyperCompilation,
+} from "@ethereum-sourcify/lib-sourcify";
+import {
   Verification,
   SourcifyLibError,
   SourcifyChain,
-  SourcifyChainInstance,
-  SourcifyChainMap,
   SolidityMetadataContract,
   useAllSourcesAndReturnCompilation,
+  EtherscanUtils,
 } from "@ethereum-sourcify/lib-sourcify";
 import { resolve } from "path";
 import { ChainRepository } from "../../../sourcify-chain-repository";
@@ -25,22 +27,19 @@ import type {
   VerifyFromMetadataInput,
   VerifyOutput,
   VerificationWorkerInput,
+  VerifySimilarityInput,
 } from "./workerTypes";
 import logger, { setLogLevel } from "../../../common/logger";
-import {
-  ProcessedEtherscanResult,
-  isVyperResult,
-  processSolidityResultFromEtherscan,
-  processVyperResultFromEtherscan,
-} from "../utils/etherscan-util";
 import { asyncLocalStorage } from "../../../common/async-context";
+import SourcifyChainMock from "../utils/SourcifyChainMock";
+import { createPreRunCompilationFromStoredCandidate } from "../utils/database-util";
+import { createCompilationFromJsonInput } from "../utils/compilation";
 
 export const filename = resolve(__filename);
 
 let chainRepository: ChainRepository;
 let solc: SolcLocal;
 let vyper: VyperLocal;
-
 const initWorker = () => {
   if (chainRepository && solc && vyper) {
     return;
@@ -95,6 +94,12 @@ export async function verifyFromEtherscan(
   return runWorkerFunctionWithContext(_verifyFromEtherscan, input);
 }
 
+export async function verifySimilarity(
+  input: VerifySimilarityInput,
+): Promise<VerifyOutput> {
+  return runWorkerFunctionWithContext(_verifySimilarity, input);
+}
+
 async function _verifyFromJsonInput({
   chainId,
   address,
@@ -103,23 +108,14 @@ async function _verifyFromJsonInput({
   compilationTarget,
   creationTransactionHash,
 }: VerifyFromJsonInput): Promise<VerifyOutput> {
-  let compilation: SolidityCompilation | VyperCompilation | undefined;
+  let compilation: AnyCompilation;
   try {
-    if (jsonInput.language === "Solidity") {
-      compilation = new SolidityCompilation(
-        solc,
-        compilerVersion,
-        jsonInput as SolidityJsonInput,
-        compilationTarget,
-      );
-    } else if (jsonInput.language === "Vyper") {
-      compilation = new VyperCompilation(
-        vyper,
-        compilerVersion,
-        jsonInput as VyperJsonInput,
-        compilationTarget,
-      );
-    }
+    compilation = createCompilationFromJsonInput(
+      { solc, vyper },
+      compilerVersion,
+      jsonInput,
+      compilationTarget,
+    );
   } catch (error: any) {
     return {
       errorExport: createErrorExport(error),
@@ -246,26 +242,156 @@ async function _verifyFromEtherscan({
   address,
   etherscanResult,
 }: VerifyFromEtherscanInput): Promise<VerifyOutput> {
-  let processedResult: ProcessedEtherscanResult;
-  if (isVyperResult(etherscanResult)) {
-    processedResult = await processVyperResultFromEtherscan(
+  let compilation: SolidityCompilation | VyperCompilation;
+  try {
+    compilation = await EtherscanUtils.getCompilationFromEtherscanResult(
       etherscanResult,
-      true,
+      solc,
+      vyper,
     );
-  } else {
-    processedResult = processSolidityResultFromEtherscan(etherscanResult, true);
+  } catch (error: any) {
+    return {
+      errorExport: createErrorExport(error),
+    };
   }
 
   return _verifyFromJsonInput({
     chainId,
     address,
-    jsonInput: processedResult.jsonInput,
-    compilerVersion: processedResult.compilerVersion,
-    compilationTarget: {
-      name: processedResult.contractName,
-      path: processedResult.contractPath,
-    },
+    jsonInput: compilation.jsonInput,
+    compilerVersion: compilation.compilerVersion,
+    compilationTarget: compilation.compilationTarget,
   });
+}
+
+async function _verifySimilarity({
+  chainId,
+  address,
+  runtimeBytecode,
+  creationTransactionHash,
+  candidates,
+}: VerifySimilarityInput): Promise<VerifyOutput> {
+  const sourcifyChain = chainRepository.sourcifyChainMap[chainId];
+
+  let resolvedCreatorTxHash = creationTransactionHash || undefined;
+  if (!resolvedCreatorTxHash) {
+    resolvedCreatorTxHash =
+      (await getCreatorTx(sourcifyChain, address)) || undefined;
+  }
+
+  // Fetch creation data to be used in the SourcifyChainMock
+  let creationData: {
+    creationBytecode?: string;
+    deployer?: string;
+    blockNumber?: number;
+    txIndex?: number;
+  } = {};
+  if (resolvedCreatorTxHash) {
+    try {
+      const creatorTx = await sourcifyChain.getTx(resolvedCreatorTxHash);
+      const { creationBytecode, txReceipt } =
+        await sourcifyChain.getContractCreationBytecodeAndReceipt(
+          address,
+          resolvedCreatorTxHash,
+          creatorTx,
+        );
+      creationData = {
+        creationBytecode,
+        deployer: creatorTx.from,
+        blockNumber: creatorTx.blockNumber ?? undefined,
+        txIndex: txReceipt.index ?? undefined,
+      };
+    } catch (error: any) {
+      logger.debug(
+        "Failed to fetch creation data for similarity verification",
+        {
+          chainId,
+          address: address,
+          creatorTxHash: resolvedCreatorTxHash,
+          error: error?.message,
+        },
+      );
+    }
+  }
+
+  const mockChain = new SourcifyChainMock(
+    {
+      onchain_runtime_code: runtimeBytecode,
+      onchain_creation_code: creationData.creationBytecode,
+      deployer: creationData.deployer,
+      block_number: creationData.blockNumber,
+      transaction_index: creationData.txIndex,
+      transaction_hash: resolvedCreatorTxHash,
+    },
+    Number(chainId),
+    address,
+  );
+
+  for (const candidate of candidates) {
+    let compilation;
+    try {
+      compilation = createPreRunCompilationFromStoredCandidate(
+        { solc, vyper },
+        candidate,
+      );
+    } catch (error: any) {
+      logger.warn("Failed to create compilation from similarity candidate", {
+        chainId,
+        address: address,
+        error: error.message,
+      });
+      continue;
+    }
+
+    const verification = new Verification(
+      compilation,
+      mockChain,
+      address,
+      resolvedCreatorTxHash,
+    );
+
+    try {
+      await verification.verify();
+    } catch (error: any) {
+      if (error instanceof SourcifyLibError) {
+        logger.debug("Similarity candidate verification failed", {
+          chainId,
+          address: address,
+          error: error.code,
+        });
+        continue;
+      }
+
+      logger.warn("Unexpected error during similarity candidate verification", {
+        chainId,
+        address: address,
+        error: error?.message,
+      });
+      throw new Error(
+        `Unexpected error during similarity candidate verification: ${error.message}`,
+      );
+    }
+
+    const { runtimeMatch, creationMatch } = verification.status;
+
+    if (runtimeMatch !== null || creationMatch !== null) {
+      logger.info("Similarity verification matched candidate", {
+        chainId,
+        address: address,
+      });
+      return {
+        verificationExport: verification.export(),
+      };
+    }
+  }
+
+  return {
+    errorExport: {
+      customCode: "no_similar_match_found",
+      errorId: uuidv4(),
+      errorData: undefined,
+    },
+  };
 }
 
 function createErrorExport(

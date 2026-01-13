@@ -1,8 +1,11 @@
-import { VerificationExport } from "@ethereum-sourcify/lib-sourcify";
+import type { VerificationExport } from "@ethereum-sourcify/lib-sourcify";
 import * as DatabaseUtil from "../utils/database-util";
+import type { Tables } from "../utils/database-util";
 import { bytesFromString } from "../utils/database-util";
-import { Database, DatabaseOptions } from "../utils/Database";
-import { QueryResult } from "pg";
+import type { DatabaseOptions } from "../utils/Database";
+import { Database } from "../utils/Database";
+import type { PoolClient, QueryResult } from "pg";
+import { ConflictError } from "../../../common/errors/ConflictError";
 
 export default abstract class AbstractDatabaseService {
   public database: Database;
@@ -43,13 +46,9 @@ export default abstract class AbstractDatabaseService {
 
   async insertNewVerifiedContract(
     databaseColumns: DatabaseUtil.DatabaseColumns,
-  ): Promise<string> {
-    // Get a client from the pool, so that we can execute all the insert queries within the same transaction
-    const client = await this.database.pool.connect();
-
+    client: PoolClient,
+  ): Promise<Tables.VerifiedContract["id"]> {
     try {
-      // Start the sql transaction
-      await client.query("BEGIN");
       let recompiledCreationCodeInsertResult:
         | QueryResult<Pick<DatabaseUtil.Tables.Code, "bytecode_hash">>
         | undefined;
@@ -120,23 +119,18 @@ export default abstract class AbstractDatabaseService {
           compilation_id: compiledContractId,
           deployment_id: contractDeploymentInsertResult.rows[0].id,
         });
-      // Commit the transaction
-      await client.query("COMMIT");
       return verifiedContractInsertResult.rows[0].id;
     } catch (e) {
-      // Rollback the transaction in case of error
-      await client.query("ROLLBACK");
       throw new Error(
-        `cannot insert verified_contract address=${databaseColumns.contractDeployment.address} chainId=${databaseColumns.contractDeployment.chain_id}\n${e}`,
+        `cannot insert verified_contract address=0x${databaseColumns.contractDeployment.address.toString("hex")} chainId=${databaseColumns.contractDeployment.chain_id}\n${e}`,
       );
-    } finally {
-      client.release();
     }
   }
 
   async updateExistingVerifiedContract(
     databaseColumns: DatabaseUtil.DatabaseColumns,
-  ): Promise<string> {
+    client: PoolClient,
+  ): Promise<Tables.VerifiedContract["id"]> {
     // runtime bytecodes must exist
     if (databaseColumns.recompiledRuntimeCode.bytecode === undefined) {
       throw new Error("Missing normalized runtime bytecode");
@@ -146,11 +140,7 @@ export default abstract class AbstractDatabaseService {
     }
 
     // Get a client from the pool, so that we can execute all the insert queries within the same transaction
-    const client = await this.database.pool.connect();
     try {
-      // Start the sql transaction
-      await client.query("BEGIN");
-
       let onchainCreationCodeInsertResult:
         | QueryResult<Pick<DatabaseUtil.Tables.Code, "bytecode_hash">>
         | undefined;
@@ -224,24 +214,24 @@ export default abstract class AbstractDatabaseService {
           deployment_id: contractDeploymentId,
         });
 
-      // Commit the transaction
-      await client.query("COMMIT");
       return verifiedContractInsertResult.rows[0].id;
     } catch (e) {
-      // Rollback the transaction in case of error
-      await client.query("ROLLBACK");
+      if (e instanceof ConflictError) {
+        throw e;
+      }
       throw new Error(
-        `cannot update verified_contract address=${databaseColumns.contractDeployment.address} chainId=${databaseColumns.contractDeployment.chain_id}\n${e}`,
+        `cannot update verified_contract address=0x${databaseColumns.contractDeployment.address.toString("hex")} chainId=${databaseColumns.contractDeployment.chain_id}\n${e}`,
       );
-    } finally {
-      client.release();
     }
   }
 
-  async insertOrUpdateVerification(verification: VerificationExport): Promise<{
+  async insertOrUpdateVerification(
+    verification: VerificationExport,
+    poolClient: PoolClient,
+  ): Promise<{
     type: "update" | "insert";
-    verifiedContractId: string;
-    oldVerifiedContractId?: string;
+    verifiedContractId: Tables.VerifiedContract["id"];
+    oldVerifiedContractId?: Tables.VerifiedContract["id"];
   }> {
     this.validateVerificationBeforeStoring(verification);
 
@@ -255,21 +245,43 @@ export default abstract class AbstractDatabaseService {
       await this.database.getVerifiedContractByChainAndAddress(
         verification.chainId,
         bytesFromString(verification.address)!,
+        poolClient,
       );
 
     if (existingVerifiedContractResult.rowCount === 0) {
       return {
         type: "insert",
-        verifiedContractId:
-          await this.insertNewVerifiedContract(databaseColumns),
+        verifiedContractId: await this.insertNewVerifiedContract(
+          databaseColumns,
+          poolClient,
+        ),
       };
     } else {
       return {
         type: "update",
-        verifiedContractId:
-          await this.updateExistingVerifiedContract(databaseColumns),
+        verifiedContractId: await this.updateExistingVerifiedContract(
+          databaseColumns,
+          poolClient,
+        ),
         oldVerifiedContractId: existingVerifiedContractResult.rows[0].id,
       };
+    }
+  }
+
+  async withTransaction<T>(
+    callback: (client: PoolClient) => Promise<T>,
+  ): Promise<T> {
+    const client = await this.database.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await callback(client);
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
     }
   }
 }

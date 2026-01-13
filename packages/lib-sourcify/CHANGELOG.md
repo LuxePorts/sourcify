@@ -2,6 +2,79 @@
 
 All notable changes to this project will be documented in this file.
 
+## @ethereum-sourcify/lib-sourcify@3.1.0 - 2026-01-07
+
+- Add support for Yul compilation and verification (#2521)
+
+
+## @ethereum-sourcify/lib-sourcify@3.0.5 - 2025-12-15
+
+- Fix v2 etherscan error handling (#2523)\
+- Update dependencies
+
+## @ethereum-sourcify/lib-sourcify@3.0.4 - 2025-11-19
+
+- Turn @typescript-eslint/consistent-type-imports rule on (#2496)
+- Support contracts without auxdata (#2456)
+- update dependencies
+
+## @ethereum-sourcify/lib-sourcify@3.0.3 - 2025-11-04
+
+- update dependencies
+
+## @ethereum-sourcify/lib-sourcify@3.0.2 - 2025-10-30
+
+- Only count timeouts and network errors as rpc failures (#2473)
+
+
+## @ethereum-sourcify/lib-sourcify@3.0.1 - 2025-10-28
+
+- support Vyper contract for version <0.3.10 with constructor properties (#2454)
+
+## @ethereum-sourcify/lib-sourcify@3.0.0 - 2025-10-16
+
+- Introduce Circuit Breaker pattern for failing rpcs on SourcifyChain and restructure rpc properties (#2404)
+  - This changes the new SourcifyChain() contrcutor and requires a major release
+- Update dependencies
+
+## @ethereum-sourcify/lib-sourcify@2.3.1 - 2025-09-18
+
+- Fix empty Vyper settings in json (#2346)
+
+## @ethereum-sourcify/lib-sourcify@2.3.0 - 2025-08-25
+
+- Move Etherscan utils to lib-sourcify (#2297)
+- Use consistent ethers version and JsonFragment instead of abitype
+- Handle legacyAssembly without .auxdata for solc <=0.4.11
+- Add tests for pre-0.4.11 solc cborAuxdata handling
+- Throw on pre-0.4.11 Solidity versions in lib-sourcify
+- Pre 0.4.11 cbor auxdata (#2277)
+- Add support for `ContractFileName` in the Import From Etherscan (#2312)
+- Update dependencies
+
+## @ethereum-sourcify/lib-sourcify@2.2.2 - 2025-08-12
+
+- Clean compiler version in compilation classes (#2295)
+- Rpcs housekeeping and removing URL logs with API Keys (#2283)
+
+## @ethereum-sourcify/lib-sourcify@2.2.1 - 2025-08-11
+
+- update dependencies
+
+## @ethereum-sourcify/lib-sourcify@2.2.0 - 2025-08-04
+
+- Add PreRunCompilation class to handle compilations for already compiled contracts
+- update Node.js engine version to >=22.0.0 in package.json files (#2269)
+- update dependencies
+
+## @ethereum-sourcify/lib-sourcify@2.1.5 - 2025-07-09
+
+- update dependencies
+
+## @ethereum-sourcify/lib-sourcify@2.1.4 - 2025-06-18
+
+- Add a new CompilationError code `compiler_error` and include the full compiler error output in the thrown CompilationError
+
 ## @ethereum-sourcify/lib-sourcify@2.1.3 - 2025-05-20
 
 - Remove creatorTxHash's undefined assignment when creation match fails (#2154)
@@ -11,7 +84,6 @@ All notable changes to this project will be documented in this file.
 
 - Add support for zeroed-out placeholders to accept bytecodes from the database (#2150)
 - Handle : characters in contract paths correctly (#2143)
-
 
 ## @ethereum-sourcify/lib-sourcify@2.1.1 - 2025-05-06
 
@@ -55,7 +127,7 @@ All notable changes to this project will be documented in this file.
 
 ## @ethereum-sourcify/lib-sourcify@1.10.1 - 2024-12-11
 
-- Add SourcifyChain.getStorageAt 
+- Add SourcifyChain.getStorageAt
 - Update dependencies
 
 ## @ethereum-sourcify/lib-sourcify@1.10.0 - 2024-10-29
@@ -166,4 +238,4 @@ All notable changes to this project will be documented in this file.
 ## Older releases
 
 Previously, the releases were not done one separate modules of Sourcify but for the repository as a whole.
-You can find the changelog for those releases in [older releases](https://github.com/ethereum/sourcify/releases) for this repository.
+You can find the changelog for those releases in [older releases](https://github.com/argotorg/sourcify/releases) for this repository.

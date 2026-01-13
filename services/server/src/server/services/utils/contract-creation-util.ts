@@ -1,7 +1,4 @@
-import {
-  ContractCreationFetcher,
-  SourcifyChain,
-} from "@ethereum-sourcify/lib-sourcify";
+import type { SourcifyChain } from "@ethereum-sourcify/lib-sourcify";
 import { StatusCodes } from "http-status-codes";
 import logger from "../../../common/logger";
 
@@ -16,22 +13,33 @@ const ETHERSCAN_API =
 const BLOCKSSCAN_SUFFIX = "api/accounts/${ADDRESS}";
 const BLOCKSCOUT_API_SUFFIX = "/api/v2/addresses/${ADDRESS}";
 const TELOS_SUFFIX = "v1/contract/${ADDRESS}";
-const METER_SUFFIX = "api/accounts/${ADDRESS}";
 const AVALANCHE_SUBNET_SUFFIX =
   "contracts/${ADDRESS}/transactions:getDeployment";
 const NEXUS_SUFFIX = "v1/${RUNTIME}/accounts/${ADDRESS}";
 const ROUTESCAN_API_URL =
-  "https://api.routescan.io/v2/network/${CHAIN_TYPE}/evm/${CHAIN_ID}/etherscan?module=contract&action=getcontractcreation&contractaddresses=${ADDRESS}";
+  "https://api.routescan.io/v2/network/${CHAIN_TYPE}/evm/${CHAIN_ID}/etherscan/api?module=contract&action=getcontractcreation&contractaddresses=${ADDRESS}";
 const VECHAIN_API_URL =
   "https://api.vechainstats.com/v2/contract/info?address=${ADDRESS}&expanded=true&VCS_API_KEY=";
+
+export const BINARY_SEARCH_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
+
+interface ContractCreationFetcher {
+  type: "scrape" | "api";
+  url: string;
+  maskedUrl?: string;
+  responseParser?: Function;
+  scrapeRegex?: string[];
+}
 
 function getApiContractCreationFetcher(
   url: string,
   responseParser: Function,
+  maskedUrl?: string,
 ): ContractCreationFetcher {
   return {
     type: "api",
     url,
+    maskedUrl: maskedUrl || url,
     responseParser,
   };
 }
@@ -84,6 +92,7 @@ function getEtherscanApiContractCreatorFetcher(
       if (response?.result?.[0]?.txHash)
         return response?.result?.[0]?.txHash as string;
     },
+    ETHERSCAN_API.replace("${CHAIN_ID}", chainId.toString()),
   );
 }
 
@@ -119,17 +128,6 @@ function getBlocksScanApiContractCreatorFetcher(
     apiURL + BLOCKSSCAN_SUFFIX,
     (response: any) => {
       if (response.fromTxn) return response.fromTxn as string;
-    },
-  );
-}
-
-function getMeterApiContractCreatorFetcher(
-  apiURL: string,
-): ContractCreationFetcher {
-  return getApiContractCreationFetcher(
-    apiURL + METER_SUFFIX,
-    (response: any) => {
-      return response.account.creationTxHash as string;
     },
   );
 }
@@ -180,6 +178,7 @@ function getVeChainApiContractCreatorFetcher(
       if (response?.data?.creation_txid)
         return response.data.creation_txid as string;
     },
+    VECHAIN_API_URL,
   );
 }
 
@@ -197,7 +196,7 @@ async function getCreatorTxUsingFetcher(
   );
 
   logger.debug("Fetching Creator Tx", {
-    fetcher,
+    fetcherUrl: fetcher?.maskedUrl,
     contractFetchAddressFilled,
     contractAddress,
   });
@@ -214,7 +213,7 @@ async function getCreatorTxUsingFetcher(
           );
           if (creatorTx) {
             logger.debug("Fetched and found creator Tx", {
-              fetcher,
+              fetcherUrl: fetcher?.maskedUrl,
               contractFetchAddressFilled,
               contractAddress,
               creatorTx,
@@ -229,7 +228,7 @@ async function getCreatorTxUsingFetcher(
           const response = await fetchFromApi(contractFetchAddressFilled);
           const creatorTx = fetcher?.responseParser(response);
           logger.debug("Fetched Creator Tx", {
-            fetcher,
+            fetcherUrl: fetcher?.maskedUrl,
             contractFetchAddressFilled,
             contractAddress,
             creatorTx,
@@ -243,6 +242,7 @@ async function getCreatorTxUsingFetcher(
     }
   } catch (e: any) {
     logger.warn("Error while getting creation transaction", {
+      fetcherUrl: fetcher?.maskedUrl,
       error: e.message,
     });
     return null;
@@ -331,15 +331,6 @@ export const getCreatorTx = async (
       return result;
     }
   }
-  if (sourcifyChain.fetchContractCreationTxUsing?.meterApi) {
-    const fetcher = getMeterApiContractCreatorFetcher(
-      sourcifyChain.fetchContractCreationTxUsing?.meterApi.url,
-    );
-    const result = await getCreatorTxUsingFetcher(fetcher, contractAddress);
-    if (result) {
-      return result;
-    }
-  }
   if (sourcifyChain.fetchContractCreationTxUsing?.telosApi) {
     const fetcher = getTelosApiContractCreatorFetcher(
       sourcifyChain.fetchContractCreationTxUsing?.telosApi.url,
@@ -382,11 +373,10 @@ export const getCreatorTx = async (
     }
   }
 
-  // Try binary search as last resort
   logger.debug("Trying binary search to find contract creation transaction", {
     contractAddress,
   });
-  const result = await findContractCreationTxByBinarySearch(
+  const result = await findContractCreationTxByBinarySearchWithTimeout(
     sourcifyChain,
     contractAddress,
   );
@@ -577,4 +567,29 @@ export async function findContractCreationTxByBinarySearch(
     });
     return null;
   }
+}
+
+export async function findContractCreationTxByBinarySearchWithTimeout(
+  sourcifyChain: SourcifyChain,
+  contractAddress: string,
+  binarySearchTimeoutMs = BINARY_SEARCH_TIMEOUT_MS,
+): Promise<string | null> {
+  const timeoutPromise = new Promise<null>((resolve) =>
+    setTimeout(() => {
+      logger.warn(
+        `Binary search for contract creation tx timed out after ${binarySearchTimeoutMs} ms`,
+        {
+          chainId: sourcifyChain.chainId,
+          contractAddress,
+          timeoutMs: binarySearchTimeoutMs,
+        },
+      );
+      resolve(null);
+    }, binarySearchTimeoutMs),
+  );
+
+  return Promise.race([
+    findContractCreationTxByBinarySearch(sourcifyChain, contractAddress),
+    timeoutPromise,
+  ]);
 }

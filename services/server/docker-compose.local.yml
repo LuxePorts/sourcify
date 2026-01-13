@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   db:
-    image: postgres:16-alpine
+    image: postgres:15-alpine
     environment:
       POSTGRES_DB: "sourcify"
       POSTGRES_USER: "sourcify"
@@ -17,10 +17,12 @@ services:
 
   # Needed to separate the migration because node must have PID 1 in service server
   run-migrations:
-    image: node:22.5.1-bullseye-slim
+    image: node:22.5.1-bookworm-slim
     volumes:
       - ../database:/home/app/services/database
-    command: /bin/bash -c "cd /home/app/services/database && npm run migrate:up -- --env local-docker"
+    environment:
+      DATABASE_URL: "postgres://sourcify:sourcify@db:5432/sourcify?sslmode=disable"
+    command: /bin/bash -c "cd /home/app/services/database && npm install && npm run migrate:up"
     restart: "no"
     deploy:
       restart_policy:

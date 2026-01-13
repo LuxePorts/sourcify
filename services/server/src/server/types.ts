@@ -1,4 +1,4 @@
-import {
+import type {
   CompiledContractCborAuxdata,
   Devdoc,
   ImmutableReferences,
@@ -17,10 +17,19 @@ import {
   VyperOutputSource,
   SolidityOutputSource,
 } from "@ethereum-sourcify/lib-sourcify";
-import { Response } from "express";
-import { Abi } from "abitype";
-import { ProxyDetectionResult } from "./services/utils/proxy-contract-util";
-import { GenericErrorResponse, MatchingErrorResponse } from "./apiv2/errors";
+import type { Response } from "express";
+import type { JsonFragment } from "ethers";
+import type { ProxyDetectionResult } from "./services/utils/proxy-contract-util";
+import type {
+  GenericErrorResponse,
+  MatchingErrorResponse,
+} from "./apiv2/errors";
+import type { SignatureType } from "./services/utils/signature-util";
+import type {
+  ExternalVerification,
+  GetSourcifyMatchByChainAddressWithPropertiesResult,
+  Tables,
+} from "./services/utils/database-util";
 
 // Types used internally by the server.
 
@@ -83,7 +92,7 @@ export interface VerifiedContract extends VerifiedContractMinimal {
     name: string;
     fullyQualifiedName: string;
   };
-  abi?: Nullable<Abi>;
+  abi?: Nullable<JsonFragment[]>;
   metadata?: Nullable<Metadata>;
   storageLayout?: Nullable<StorageLayout>;
   userdoc?: Nullable<Userdoc>;
@@ -96,7 +105,16 @@ export interface VerifiedContract extends VerifiedContractMinimal {
   >;
   stdJsonInput?: SolidityJsonInput | VyperJsonInput;
   stdJsonOutput?: SolidityOutput | VyperOutput;
+  signatures?: {
+    [k in `${SignatureType}`]: SignatureRepresentations[];
+  };
   proxyResolution?: ProxyResolution;
+}
+
+export interface SignatureRepresentations {
+  signature: string;
+  signatureHash32: string;
+  signatureHash4: string;
 }
 
 // TODO:
@@ -110,7 +128,29 @@ export type ProxyResolution = Partial<ProxyDetectionResult> & {
 
 export type VerificationJobId = string;
 
-export interface VerificationJob {
+export type ApiExternalVerification = ExternalVerification & {
+  statusUrl?: string;
+  explorerUrl?: string;
+  contractApiUrl?: string;
+};
+
+export interface ApiExternalVerifications {
+  etherscan?: ApiExternalVerification;
+  blockscout?: ApiExternalVerification;
+  routescan?: ApiExternalVerification;
+}
+
+export type VerificationJobExternalFormat = "raw" | "api";
+
+type ExternalVerificationForFormat<
+  TExternalFormat extends VerificationJobExternalFormat,
+> = TExternalFormat extends "api"
+  ? ApiExternalVerifications
+  : Tables.VerificationJob["external_verification"];
+
+export interface VerificationJob<
+  TExternalFormat extends VerificationJobExternalFormat = "raw",
+> {
   isJobCompleted: boolean;
   verificationId: VerificationJobId;
   jobStartTime: string;
@@ -118,6 +158,7 @@ export interface VerificationJob {
   compilationTime?: string;
   error?: MatchingErrorResponse;
   contract: VerifiedContractMinimal;
+  externalVerifications?: ExternalVerificationForFormat<TExternalFormat>;
 }
 
 /**
@@ -234,3 +275,16 @@ export interface Match {
   contractName?: string;
   message?: string;
 }
+
+export type SimilarityCandidate = Required<
+  Pick<
+    GetSourcifyMatchByChainAddressWithPropertiesResult,
+    | "std_json_input"
+    | "std_json_output"
+    | "version"
+    | "fully_qualified_name"
+    | "creation_cbor_auxdata"
+    | "runtime_cbor_auxdata"
+    | "metadata"
+  >
+>;

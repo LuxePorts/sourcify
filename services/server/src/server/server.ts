@@ -1,5 +1,6 @@
 import path from "path";
-import express, { NextFunction, Request, Response } from "express";
+import type { NextFunction, Request, Response } from "express";
+import express from "express";
 import cors from "cors";
 import * as OpenApiValidator from "express-openapi-validator";
 import yamljs from "yamljs";
@@ -17,21 +18,23 @@ import genericErrorHandler from "../common/errors/GenericErrorHandler";
 import { initDeprecatedRoutes } from "./apiv1/deprecated.routes";
 import getSessionMiddleware from "./session";
 import { Services } from "./services/services";
-import { StorageServiceOptions } from "./services/StorageService";
-import { VerificationServiceOptions } from "./services/VerificationService";
-import {
-  getLibSourcifyLoggerLevel,
+import type { StorageServiceOptions } from "./services/StorageService";
+import type { VerificationServiceOptions } from "./services/VerificationService";
+import type {
   ISolidityCompiler,
   IVyperCompiler,
-  SolidityMetadataContract,
-  SourcifyChain,
   SourcifyChainMap,
 } from "@ethereum-sourcify/lib-sourcify";
+import {
+  getLibSourcifyLoggerLevel,
+  SolidityMetadataContract,
+  SourcifyChain,
+} from "@ethereum-sourcify/lib-sourcify";
 import { ChainRepository } from "../sourcify-chain-repository";
-import { SessionOptions } from "express-session";
+import type { SessionOptions } from "express-session";
 import { makeV1ValidatorFormats } from "./apiv1/validation";
 import { errorHandler as v2ErrorHandler } from "./apiv2/errors";
-import http from "http";
+import type http from "http";
 import { RWStorageIdentifiers } from "./services/storageServices/identifiers";
 
 declare module "express-serve-static-core" {
@@ -56,11 +59,13 @@ export interface ServerOptions {
   solc: ISolidityCompiler;
   vyper: IVyperCompiler;
   verifyDeprecated: boolean;
-  upgradeContract: boolean;
+  replaceContract: boolean;
   sessionOptions: SessionOptions;
   sourcifyPrivateToken?: string;
   libSourcifyConfig?: LibSourcifyConfig;
   logLevel?: string;
+  sourcifyVerifyUi?: string;
+  sourcifyRepoUi?: string;
 }
 
 export class Server {
@@ -132,8 +137,32 @@ export class Server {
     this.app.set("solc", options.solc);
     this.app.set("vyper", options.vyper);
     this.app.set("verifyDeprecated", options.verifyDeprecated);
-    this.app.set("upgradeContract", options.upgradeContract);
+    this.app.set("replaceContract", options.replaceContract);
     this.app.set("services", this.services);
+    this.app.set("sourcifyVerifyUi", options.sourcifyVerifyUi);
+    this.app.set("sourcifyRepoUi", options.sourcifyRepoUi);
+
+    // Session API endpoints require non "*" origins because of the session cookies
+    const sessionPaths = [
+      "/session", // all paths /session/verify /session/input-files etc.
+      // legacy endpoint naming below
+      "/input-files",
+      "/restart-session",
+      "/verify-validated",
+    ];
+    this.app.use((req, res, next) => {
+      // startsWith to match /session*
+      if (sessionPaths.some((substr) => req.path.startsWith(substr))) {
+        return cors({
+          origin: options.corsAllowedOrigins,
+          credentials: true,
+        })(req, res, next);
+      }
+      // * for all non-session paths
+      return cors({
+        origin: "*",
+      })(req, res, next);
+    });
 
     this.app.use(
       bodyParser.urlencoded({
@@ -179,6 +208,24 @@ export class Server {
       asyncLocalStorage.run(context, () => {
         next();
       });
+    });
+
+    // Log verify.sourcify.dev UI client identification headers if present
+    this.app.use((req, res, next) => {
+      const clientSource = req.headers["x-client-source"] as string;
+      const clientVersion = req.headers["x-client-version"] as string;
+      const clientType = req.headers["x-client-type"] as string;
+
+      if (clientSource) {
+        logger.info("Client request via header", {
+          method: req.method,
+          path: req.path,
+          clientSource,
+          clientVersion,
+          clientType,
+        });
+      }
+      next();
     });
 
     // Log all requests in trace mode
@@ -228,28 +275,6 @@ export class Server {
         },
       }),
     );
-
-    // Session API endpoints require non "*" origins because of the session cookies
-    const sessionPaths = [
-      "/session", // all paths /session/verify /session/input-files etc.
-      // legacy endpoint naming below
-      "/input-files",
-      "/restart-session",
-      "/verify-validated",
-    ];
-    this.app.use((req, res, next) => {
-      // startsWith to match /session*
-      if (sessionPaths.some((substr) => req.path.startsWith(substr))) {
-        return cors({
-          origin: options.corsAllowedOrigins,
-          credentials: true,
-        })(req, res, next);
-      }
-      // * for all non-session paths
-      return cors({
-        origin: "*",
-      })(req, res, next);
-    });
 
     // Need this for secure cookies to work behind a proxy. See https://expressjs.com/en/guide/behind-proxies.html
     // true means the leftmost IP in the X-Forwarded-* header is used

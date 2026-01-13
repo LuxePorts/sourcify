@@ -4,10 +4,11 @@ import type {
   VerificationExport,
   CompilationTarget,
   Metadata,
+  EtherscanResult,
 } from "@ethereum-sourcify/lib-sourcify";
 import { type MatchingErrorResponse } from "../../apiv2/errors";
-import { JobErrorData } from "../utils/database-util";
-import { EtherscanResult } from "../utils/etherscan-util";
+import type { JobErrorData } from "../utils/database-util";
+import type { SimilarityCandidate } from "../../types";
 
 export interface VerificationWorkerInput {
   traceId?: string;
@@ -34,6 +35,14 @@ export interface VerifyFromEtherscanInput extends VerificationWorkerInput {
   chainId: string;
   address: string;
   etherscanResult: EtherscanResult;
+}
+
+export interface VerifySimilarityInput extends VerificationWorkerInput {
+  chainId: string;
+  address: string;
+  runtimeBytecode: string;
+  creationTransactionHash?: string;
+  candidates: SimilarityCandidate[];
 }
 
 export class VerifyError extends Error {

@@ -1,14 +1,16 @@
-import { Request } from "express";
+import type { Request } from "express";
 import { BadRequestError, PayloadTooLargeError } from "../../../common/errors";
-import {
+import type {
   InvalidSources,
   MissingSources,
   PathContent,
   IVyperCompiler,
-  SolidityMetadataContract,
-  VyperCompilation,
   CompilationTarget,
   Verification,
+} from "@ethereum-sourcify/lib-sourcify";
+import {
+  SolidityMetadataContract,
+  VyperCompilation,
   VerificationError,
   useAllSourcesAndReturnCompilation,
   SolidityCompilation,
@@ -16,21 +18,21 @@ import {
   splitFiles,
   rearrangeSources,
 } from "@ethereum-sourcify/lib-sourcify";
-import { Session } from "express-session";
-import { AbiConstructor, AbiParameter } from "abitype";
-import QueryString from "qs";
-import { VerificationService } from "../../services/VerificationService";
-import {
+import type { Session } from "express-session";
+import type { JsonFragmentType } from "ethers";
+import type QueryString from "qs";
+import type { VerificationService } from "../../services/VerificationService";
+import type {
   ContractMeta,
   ContractWrapper,
   ContractWrapperData,
 } from "../../common";
-import { ISolidityCompiler } from "@ethereum-sourcify/lib-sourcify";
-import { StorageService } from "../../services/StorageService";
+import type { ISolidityCompiler } from "@ethereum-sourcify/lib-sourcify";
+import type { StorageService } from "../../services/StorageService";
 import logger from "../../../common/logger";
 import { createHash } from "crypto";
-import { ChainRepository } from "../../../sourcify-chain-repository";
-import { Match } from "../../types";
+import type { ChainRepository } from "../../../sourcify-chain-repository";
+import type { Match } from "../../types";
 import { keccak256 } from "ethers";
 import { getMatchStatus } from "../controllers.common";
 
@@ -132,10 +134,6 @@ export const saveFilesToSession = (
   return newFilesCount;
 };
 
-type Mutable<Type> = {
-  -readonly [Key in keyof Type]: Type[Key];
-};
-
 // Contract object in the server response.
 export type SendableContract = ContractMeta & {
   files: {
@@ -144,7 +142,7 @@ export type SendableContract = ContractMeta & {
     invalid: InvalidSources;
   };
   verificationId: string;
-  constructorArgumentsArray?: Mutable<AbiParameter[]>;
+  constructorArgumentsArray?: readonly JsonFragmentType[];
   // creationBytecode?: string; // Not needed without create2
 };
 
@@ -156,11 +154,9 @@ function getSendableContract(
 
   return {
     verificationId,
-    constructorArgumentsArray: (
-      contract?.metadata?.output?.abi?.find(
-        (abi) => abi.type === "constructor",
-      ) as AbiConstructor
-    )?.inputs as Mutable<AbiParameter[]>,
+    constructorArgumentsArray: contract?.metadata?.output?.abi?.find(
+      (abi) => abi.type === "constructor",
+    )?.inputs,
     // : contract?.creationBytecode, // Not needed without create2
     compiledPath: contract.compiledPath,
     name: contract.name,
@@ -517,11 +513,21 @@ export const verifyContractsInSession = async (
       // Verify the contract using the new verification flow
       let verification: Verification;
 
+      if (!chainId) {
+        throw new BadRequestError(
+          `Missing chainId for contract ${contract.name}`,
+        );
+      }
+      if (!address) {
+        throw new BadRequestError(
+          `Missing address for contract ${contract.name}`,
+        );
+      }
       try {
         verification = await verificationService.verifyFromCompilation(
           compilation,
-          chainRepository.sourcifyChainMap[chainId as string],
-          address as string,
+          chainRepository.sourcifyChainMap[chainId],
+          address,
           creatorTxHash,
         );
       } catch (error: any) {

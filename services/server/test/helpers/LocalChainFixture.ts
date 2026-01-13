@@ -1,18 +1,20 @@
 import path from "path";
 import fs from "fs";
+import type { DeploymentInfo } from "./helpers";
 import {
   deployFromAbiAndBytecodeForCreatorTxHash,
-  DeploymentInfo,
   readFilesFromDirectory,
 } from "./helpers";
-import { JsonRpcProvider, JsonRpcSigner, Network } from "ethers";
+import type { JsonRpcSigner } from "ethers";
+import { JsonRpcProvider, Network } from "ethers";
 import { LOCAL_CHAINS } from "../../src/sourcify-chains";
 import nock from "nock";
 import storageContractArtifact from "../testcontracts/Storage/Storage.json";
 import storageContractMetadata from "../testcontracts/Storage/metadata.json";
 import storageContractMetadataModified from "../testcontracts/Storage/metadataModified.json";
 import storageJsonInput from "../testcontracts/Storage/StorageJsonInput.json";
-import { ChildProcess, spawn } from "child_process";
+import type { ChildProcess } from "child_process";
+import { spawn } from "child_process";
 import treeKill from "tree-kill";
 import { SolidityMetadataContract } from "@ethereum-sourcify/lib-sourcify";
 import type { Metadata } from "@ethereum-sourcify/lib-sourcify";
@@ -42,6 +44,7 @@ const DEFAULT_CHAIN_ID = "31337";
 
 export type LocalChainFixtureOptions = {
   chainId?: string;
+  port?: number;
 };
 
 export class LocalChainFixture {
@@ -59,7 +62,8 @@ export class LocalChainFixture {
   defaultContractArtifact = storageContractArtifact;
   defaultContractJsonInput = storageJsonInput;
 
-  private _chainId?: string;
+  private _chainId: string;
+  private _port: number;
   private _localSigner?: JsonRpcSigner;
   private _defaultContractAddress?: string;
   private _defaultContractCreatorTx?: string;
@@ -114,6 +118,7 @@ export class LocalChainFixture {
    */
   constructor(options: LocalChainFixtureOptions = {}) {
     this._chainId = options.chainId ?? DEFAULT_CHAIN_ID;
+    this._port = options.port ?? HARDHAT_PORT;
 
     before(async () => {
       // Init IPFS mock with all the necessary pinned files
@@ -129,15 +134,15 @@ export class LocalChainFixture {
           });
       }
 
-      this.hardhatNodeProcess = await startHardhatNetwork(HARDHAT_PORT);
+      this.hardhatNodeProcess = await startHardhatNetwork(this._port);
 
       const sourcifyChainHardhat = LOCAL_CHAINS[1];
       const ethersNetwork = new Network(
-        sourcifyChainHardhat.rpc[0] as string,
+        sourcifyChainHardhat.rpcs[0].rpc as string,
         sourcifyChainHardhat.chainId,
       );
       this._localSigner = await new JsonRpcProvider(
-        `http://localhost:${HARDHAT_PORT}`,
+        `http://localhost:${this._port}`,
         ethersNetwork,
         { staticNetwork: ethersNetwork },
       ).getSigner();

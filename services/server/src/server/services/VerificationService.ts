@@ -1,18 +1,18 @@
-import {
+import type {
   SourcifyChain,
   ISolidityCompiler,
   SolidityJsonInput,
   VyperJsonInput,
   PathBuffer,
-  Verification,
-  SolidityCompilation,
-  VyperCompilation,
   SourcifyChainMap,
   VerificationExport,
   SourcifyChainInstance,
   CompilationTarget,
   Metadata,
+  EtherscanResult,
+  AnyCompilation,
 } from "@ethereum-sourcify/lib-sourcify";
+import { Verification } from "@ethereum-sourcify/lib-sourcify";
 import { getCreatorTx } from "./utils/contract-creation-util";
 import { ContractIsAlreadyBeingVerifiedError } from "../../common/errors/ContractIsAlreadyBeingVerifiedError";
 import logger from "../../common/logger";
@@ -21,24 +21,29 @@ import {
   getSolcExecutable,
   getSolcJs,
 } from "@ethereum-sourcify/compilers";
-import { VerificationJobId } from "../types";
-import { StorageService } from "./StorageService";
+import type { VerificationJobId } from "../types";
+import type { StorageService } from "./StorageService";
 import Piscina from "piscina";
 import path from "path";
 import { filename as verificationWorkerFilename } from "./workers/verificationWorker";
 import { v4 as uuidv4 } from "uuid";
 import { ConflictError } from "../../common/errors/ConflictError";
 import os from "os";
-import {
-  VerifyError,
+import type {
   VerifyErrorExport,
   VerifyFromEtherscanInput,
+} from "./workers/workerTypes";
+import {
+  VerifyError,
   type VerifyFromJsonInput,
   type VerifyFromMetadataInput,
   type VerifyOutput,
+  type VerifySimilarityInput,
 } from "./workers/workerTypes";
-import { EtherscanResult } from "./utils/etherscan-util";
 import { asyncLocalStorage } from "../../common/async-context";
+import { ContractNotDeployedError, GetBytecodeError } from "../apiv2/errors";
+
+const DEFAULT_SIMILARITY_CANDIDATE_LIMIT = 20;
 
 export interface VerificationServiceOptions {
   initCompilers?: boolean;
@@ -55,6 +60,7 @@ export class VerificationService {
   solcRepoPath: string;
   solJsonRepoPath: string;
   storageService: StorageService;
+  private sourcifyChainMap: SourcifyChainMap;
 
   activeVerificationsByChainIdAddress: {
     [chainIdAndAddress: string]: boolean;
@@ -71,6 +77,7 @@ export class VerificationService {
     this.solcRepoPath = options.solcRepoPath;
     this.solJsonRepoPath = options.solJsonRepoPath;
     this.storageService = storageService;
+    this.sourcifyChainMap = options.sourcifyChainMap;
 
     const sourcifyChainInstanceMap = Object.entries(
       options.sourcifyChainMap,
@@ -233,7 +240,7 @@ export class VerificationService {
   }
 
   public async verifyFromCompilation(
-    compilation: SolidityCompilation | VyperCompilation,
+    compilation: AnyCompilation,
     sourcifyChain: SourcifyChain,
     address: string,
     creatorTxHash?: string,
@@ -290,15 +297,9 @@ export class VerificationService {
       traceId: asyncLocalStorage.getStore()?.traceId,
     };
 
-    const task = this.workerPool
-      .run(input, { name: "verifyFromJsonInput" })
-      .then((output: VerifyOutput) => {
-        return this.handleWorkerResponse(verificationId, output);
-      })
-      .finally(() => {
-        this.runningTasks.delete(task);
-      });
-    this.runningTasks.add(task);
+    this.runInBackground(
+      this.verifyViaWorker(verificationId, "verifyFromJsonInput", input),
+    );
 
     return verificationId;
   }
@@ -325,16 +326,9 @@ export class VerificationService {
       traceId: asyncLocalStorage.getStore()?.traceId,
     };
 
-    const task = this.workerPool
-      .run(input, { name: "verifyFromMetadata" })
-      .then((output: VerifyOutput) => {
-        return this.handleWorkerResponse(verificationId, output);
-      })
-      .finally(() => {
-        this.runningTasks.delete(task);
-      });
-    this.runningTasks.add(task);
-
+    this.runInBackground(
+      this.verifyViaWorker(verificationId, "verifyFromMetadata", input),
+    );
     return verificationId;
   }
 
@@ -356,24 +350,111 @@ export class VerificationService {
       traceId: asyncLocalStorage.getStore()?.traceId,
     };
 
-    const task = this.workerPool
-      .run(input, { name: "verifyFromEtherscan" })
-      .then((output: VerifyOutput) => {
-        return this.handleWorkerResponse(verificationId, output);
-      })
-      .finally(() => {
-        this.runningTasks.delete(task);
-      });
-    this.runningTasks.add(task);
+    this.runInBackground(
+      this.verifyViaWorker(verificationId, "verifyFromEtherscan", input),
+    );
 
     return verificationId;
   }
 
-  private async handleWorkerResponse(
+  public async verifyFromSimilarityViaWorker(
+    verificationEndpoint: string,
+    chainId: string,
+    address: string,
+    creationTransactionHash?: string,
+  ): Promise<VerificationJobId> {
+    let runtimeBytecode: string;
+    try {
+      runtimeBytecode =
+        await this.sourcifyChainMap[chainId].getBytecode(address);
+    } catch (error) {
+      throw new GetBytecodeError(
+        `Failed to get bytecode for chain ${chainId} and address ${address}.`,
+      );
+    }
+
+    if (
+      !runtimeBytecode ||
+      runtimeBytecode === "0x" ||
+      runtimeBytecode === ""
+    ) {
+      throw new ContractNotDeployedError(
+        `There is no bytecode at address ${address} on chain ${chainId}.`,
+      );
+    }
+
+    const verificationId = await this.storageService.performServiceOperation(
+      "storeVerificationJob",
+      [new Date(), chainId, address, verificationEndpoint],
+    );
+
+    this.runInBackground(
+      (async () => {
+        try {
+          const candidates = await this.storageService.performServiceOperation(
+            "getSimilarityCandidatesByRuntimeCode",
+            [runtimeBytecode, DEFAULT_SIMILARITY_CANDIDATE_LIMIT],
+          );
+
+          if (candidates.length === 0) {
+            logger.info("No similarity candidates found", {
+              chainId,
+              address,
+            });
+            await this.storageService.performServiceOperation("setJobError", [
+              verificationId,
+              new Date(),
+              {
+                customCode: "no_similar_match_found",
+                errorId: uuidv4(),
+                errorData: undefined,
+              },
+            ]);
+            return;
+          }
+
+          const input: VerifySimilarityInput = {
+            chainId,
+            address,
+            runtimeBytecode,
+            creationTransactionHash,
+            candidates,
+            traceId: asyncLocalStorage.getStore()?.traceId,
+          };
+
+          await this.verifyViaWorker(verificationId, "verifySimilarity", input);
+        } catch (error) {
+          logger.error("Failed to fetch similarity candidates", {
+            chainId,
+            address,
+            error,
+          });
+          await this.storageService.performServiceOperation("setJobError", [
+            verificationId,
+            new Date(),
+            {
+              customCode: "internal_error",
+              errorId: uuidv4(),
+            },
+          ]);
+        }
+      })(),
+    );
+
+    return verificationId;
+  }
+
+  private verifyViaWorker(
     verificationId: VerificationJobId,
-    output: VerifyOutput,
+    functionName: string,
+    input:
+      | VerifyFromJsonInput
+      | VerifyFromMetadataInput
+      | VerifyFromEtherscanInput
+      | VerifySimilarityInput,
   ): Promise<void> {
-    return Promise.resolve(output)
+    return this.workerPool
+      .run(input, { name: functionName })
       .then((output: VerifyOutput) => {
         if (output.verificationExport) {
           return output.verificationExport;
@@ -396,7 +477,22 @@ export class VerificationService {
           // error comes from the verification worker
           logger.debug("Received verification error from worker", {
             verificationId,
-            errorExport: error.errorExport,
+            errorExport: {
+              ...error.errorExport,
+              // Don't log the full bytecodes because it's too long
+              onchainRuntimeCode: error.errorExport?.onchainRuntimeCode
+                ? error.errorExport.onchainRuntimeCode.slice(0, 200) + "..."
+                : error.errorExport?.onchainRuntimeCode,
+              recompiledRuntimeCode: error.errorExport?.recompiledRuntimeCode
+                ? error.errorExport.recompiledRuntimeCode.slice(0, 200) + "..."
+                : error.errorExport?.recompiledRuntimeCode,
+              onchainCreationCode: error.errorExport?.onchainCreationCode
+                ? error.errorExport.onchainCreationCode.slice(0, 200) + "..."
+                : error.errorExport?.onchainCreationCode,
+              recompiledCreationCode: error.errorExport?.recompiledCreationCode
+                ? error.errorExport.recompiledCreationCode.slice(0, 200) + "..."
+                : error.errorExport?.recompiledCreationCode,
+            },
           });
           errorExport = error.errorExport;
         } else if (error instanceof ConflictError) {
@@ -406,14 +502,15 @@ export class VerificationService {
             errorId: uuidv4(),
           };
         } else {
-          logger.error("Unexpected verification error", {
-            verificationId,
-            error,
-          });
           errorExport = {
             customCode: "internal_error",
             errorId: uuidv4(),
           };
+          logger.error("Unexpected verification error", {
+            verificationId,
+            error,
+            errorId: errorExport.errorId,
+          });
         }
 
         return this.storageService.performServiceOperation("setJobError", [
@@ -422,5 +519,12 @@ export class VerificationService {
           errorExport,
         ]);
       });
+  }
+
+  private runInBackground(promise: Promise<void>): void {
+    const task = promise.finally(() => {
+      this.runningTasks.delete(task);
+    });
+    this.runningTasks.add(task);
   }
 }

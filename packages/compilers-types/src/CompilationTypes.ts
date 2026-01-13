@@ -1,6 +1,10 @@
-import { Abi } from "abitype";
-import { SolidityOutputError, SoliditySettings } from "./SolidityTypes";
-import { VyperOutputError } from "./VyperTypes";
+import type { JsonFragment } from "ethers";
+import type {
+  SolidityJsonInput,
+  SolidityOutputError,
+  SoliditySettings,
+} from "./SolidityTypes";
+import type { VyperJsonInput, VyperOutputError } from "./VyperTypes";
 
 export interface LinkReferences {
   [filePath: string]: {
@@ -75,7 +79,7 @@ export interface Userdoc {
 export type OutputError = SolidityOutputError | VyperOutputError;
 
 export interface MetadataOutput {
-  abi: Abi;
+  abi: JsonFragment[];
   devdoc?: Devdoc;
   userdoc?: Userdoc;
 }
@@ -105,3 +109,5 @@ export interface Metadata {
   sources: MetadataSourceMap;
   version: number;
 }
+
+export type AnyJsonInput = SolidityJsonInput | VyperJsonInput;

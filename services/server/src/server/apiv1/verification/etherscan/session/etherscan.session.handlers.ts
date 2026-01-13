@@ -1,24 +1,26 @@
-import { Response, Request } from "express";
+import type { Response, Request } from "express";
 import {
   checkContractsInSession,
   getSessionJSON,
   saveFilesToSession,
   verifyContractsInSession,
 } from "../../verification.common";
-import {
+import type {
   ISolidityCompiler,
   IVyperCompiler,
   PathContent,
 } from "@ethereum-sourcify/lib-sourcify";
 import { BadRequestError } from "../../../../../common/errors";
 import {
-  stringToBase64,
-  getCompilationFromEtherscanResult,
-  fetchFromEtherscan,
+  getCompilationFromEtherscanResultOrThrowV1Error,
+  fetchFromEtherscanOrThrowError,
 } from "../../../../services/utils/etherscan-util";
 import logger from "../../../../../common/logger";
-import { ChainRepository } from "../../../../../sourcify-chain-repository";
-import { Services } from "../../../../services/services";
+import type { ChainRepository } from "../../../../../sourcify-chain-repository";
+import type { Services } from "../../../../services/services";
+
+export const stringToBase64 = (str: string): string =>
+  Buffer.from(str, "utf8").toString("base64");
 
 export async function sessionVerifyFromEtherscan(req: Request, res: Response) {
   const services = req.app.get("services") as Services;
@@ -38,13 +40,13 @@ export async function sessionVerifyFromEtherscan(req: Request, res: Response) {
   const apiKey = req.body?.apiKey;
   const sourcifyChain = chainRepository.supportedChainMap[chain];
 
-  const etherscanResult = await fetchFromEtherscan(
+  const etherscanResult = await fetchFromEtherscanOrThrowError(
     sourcifyChain,
     address,
     apiKey,
   );
 
-  const compilation = await getCompilationFromEtherscanResult(
+  const compilation = await getCompilationFromEtherscanResultOrThrowV1Error(
     etherscanResult,
     solc,
     vyper,

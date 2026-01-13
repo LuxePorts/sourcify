@@ -1,19 +1,27 @@
-import {
+import type {
   VerificationStatus,
   StringMap,
   VerificationExport,
-  splitFullyQualifiedName,
+  ISolidityCompiler,
+  IVyperCompiler,
+  PreRunCompilation,
 } from "@ethereum-sourcify/lib-sourcify";
+import { splitFullyQualifiedName } from "@ethereum-sourcify/lib-sourcify";
 import logger from "../../../common/logger";
 import AbstractDatabaseService from "./AbstractDatabaseService";
-import { RWStorageService } from "../StorageService";
-import {
-  bytesFromString,
+import type { RWStorageService } from "../StorageService";
+import type {
   Field,
-  FIELDS_TO_STORED_PROPERTIES,
+  GetSourcifyMatchByChainAddressWithPropertiesResult,
   StoredProperties,
+  Tables,
 } from "../utils/database-util";
 import {
+  bytesFromString,
+  FIELDS_TO_STORED_PROPERTIES,
+  createPreRunCompilationFromStoredCandidate,
+} from "../utils/database-util";
+import type {
   ContractData,
   FileObject,
   FilesInfo,
@@ -28,6 +36,8 @@ import {
   VerificationJob,
   Match,
   VerificationJobId,
+  BytesKeccak,
+  SimilarityCandidate,
 } from "../../types";
 import Path from "path";
 import {
@@ -37,15 +47,15 @@ import {
   toMatchLevel,
 } from "../utils/util";
 import { getAddress, id as keccak256Str } from "ethers";
-import { BadRequestError } from "../../../common/errors";
+import { extractSignaturesFromAbi } from "../utils/signature-util";
+import { BadRequestError, ConflictError } from "../../../common/errors";
 import { RWStorageIdentifiers } from "./identifiers";
 import semver from "semver";
-import { DatabaseOptions } from "../utils/Database";
-import {
-  getVerificationErrorMessage,
-  VerificationErrorCode,
-} from "../../apiv2/errors";
-import { VerifyErrorExport } from "../workers/workerTypes";
+import type { DatabaseOptions } from "../utils/Database";
+import type { VerificationErrorCode } from "../../apiv2/errors";
+import { getVerificationErrorMessage } from "../../apiv2/errors";
+import type { VerifyErrorExport } from "../workers/workerTypes";
+import type { PoolClient } from "pg";
 
 const MAX_RETURNED_CONTRACTS_BY_GETCONTRACTS = 200;
 
@@ -735,9 +745,29 @@ export class SourcifyDatabaseService
     return result;
   };
 
+  getContractsAllChains = async (
+    address: string,
+  ): Promise<{ results: VerifiedContractMinimal[] }> => {
+    const result = await this.database.getSourcifyMatchesAllChains(
+      bytesFromString(address),
+    );
+
+    const results: VerifiedContractMinimal[] = result.rows.map((row) => ({
+      match: getTotalMatchLevel(row.creation_match, row.runtime_match),
+      creationMatch: toMatchLevel(row.creation_match),
+      runtimeMatch: toMatchLevel(row.runtime_match),
+      matchId: row.id,
+      chainId: row.chain_id,
+      address: getAddress(row.address),
+      verifiedAt: row.verified_at,
+    }));
+
+    return { results };
+  };
+
   getVerificationJob = async (
     verificationId: string,
-  ): Promise<VerificationJob | null> => {
+  ): Promise<VerificationJob<"raw"> | null> => {
     const result = await this.database.getVerificationJobById(verificationId);
 
     if (result.rowCount === 0) {
@@ -759,12 +789,13 @@ export class SourcifyDatabaseService
       : null;
 
     const address = getAddress(row.contract_address);
-    const job: VerificationJob = {
+    const job: VerificationJob<"raw"> = {
       isJobCompleted: !!row.completed_at,
       verificationId,
       jobStartTime: row.started_at,
       jobFinishTime: row.completed_at || undefined,
       compilationTime: row.compilation_time || undefined,
+      externalVerifications: row.external_verification,
       contract: {
         match: getTotalMatchLevel(creationMatch, runtimeMatch),
         creationMatch: toMatchLevel(creationMatch),
@@ -863,7 +894,155 @@ export class SourcifyDatabaseService
     });
   }
 
+  private async storeSignatures(
+    poolClient: PoolClient,
+    verifiedContractId: Tables.VerifiedContract["id"],
+    verification: VerificationExport,
+  ): Promise<void> {
+    try {
+      const compiledContractResult =
+        await this.database.getCompilationIdForVerifiedContract(
+          verifiedContractId,
+          poolClient,
+        );
+      if (compiledContractResult.rowCount === 0) {
+        throw new Error(
+          `No compilation found for verifiedContractId ${verifiedContractId}`,
+        );
+      }
+      const compilationId = compiledContractResult.rows[0].compilation_id;
+
+      const abi = verification.compilation.contractCompilerOutput.abi;
+      if (!abi) {
+        if (verification.compilation.language === "Yul") {
+          return;
+        }
+        throw new Error("No ABI found in compilation output");
+      }
+
+      const signatureData = extractSignaturesFromAbi(abi);
+      const signatureColumns = signatureData.map((sig) => ({
+        signature_hash_32: bytesFromString<BytesKeccak>(sig.signatureHash32),
+        signature: sig.signature,
+        signature_type: sig.signatureType,
+      }));
+
+      await this.database.insertSignatures(signatureColumns, poolClient);
+      await this.database.insertCompiledContractSignatures(
+        compilationId,
+        signatureColumns,
+        poolClient,
+      );
+
+      logger.info("Stored signatures to SourcifyDatabase", {
+        verifiedContractId,
+        compilationId,
+        signatureCount: signatureData.length,
+      });
+    } catch (error) {
+      // Don't throw on errors, the job should not fail
+      logger.error("Error storing signatures", {
+        verifiedContractId,
+        error: error,
+      });
+    }
+  }
+
   // Override this method to include the SourcifyMatch
+  async storeVerificationWithPoolClient(
+    poolClient: PoolClient,
+    verification: VerificationExport,
+    jobData?: {
+      verificationId: VerificationJobId;
+      finishTime: Date;
+    },
+  ): Promise<{ verifiedContractId: Tables.VerifiedContract["id"] }> {
+    try {
+      const { type, verifiedContractId, oldVerifiedContractId } =
+        await super.insertOrUpdateVerification(verification, poolClient);
+
+      if (type === "insert") {
+        if (!verifiedContractId) {
+          throw new Error(
+            "VerifiedContractId undefined before inserting sourcify match",
+          );
+        }
+        await this.database.insertSourcifyMatch(
+          {
+            verified_contract_id: verifiedContractId,
+            creation_match: verification.status.creationMatch,
+            runtime_match: verification.status.runtimeMatch,
+            metadata: verification.compilation.metadata as any,
+          },
+          poolClient,
+        );
+        logger.info("Stored to SourcifyDatabase", {
+          address: verification.address,
+          chainId: verification.chainId,
+          runtimeMatch: verification.status.runtimeMatch,
+          creationMatch: verification.status.creationMatch,
+        });
+      } else if (type === "update") {
+        if (!oldVerifiedContractId) {
+          throw new Error(
+            "oldVerifiedContractId undefined before updating sourcify match",
+          );
+        }
+        await this.database.updateSourcifyMatch(
+          {
+            verified_contract_id: verifiedContractId,
+            creation_match: verification.status.creationMatch,
+            runtime_match: verification.status.runtimeMatch,
+            metadata: verification.compilation.metadata as any,
+          },
+          oldVerifiedContractId,
+          poolClient,
+        );
+        logger.info("Updated in SourcifyDatabase", {
+          address: verification.address,
+          chainId: verification.chainId,
+          runtimeMatch: verification.status.runtimeMatch,
+          creationMatch: verification.status.creationMatch,
+        });
+      } else {
+        throw new Error(
+          "insertOrUpdateVerifiedContract returned a type that doesn't exist",
+        );
+      }
+
+      // Update the verification job to be successful
+      if (jobData) {
+        await this.database.updateVerificationJob(
+          {
+            id: jobData.verificationId,
+            completed_at: jobData.finishTime,
+            verified_contract_id: verifiedContractId,
+            compilation_time:
+              verification.compilation.compilationTime?.toString() || null,
+            error_code: null,
+            error_id: null,
+            error_data: null,
+          },
+          poolClient,
+        );
+      }
+
+      return { verifiedContractId: verifiedContractId };
+    } catch (error: any) {
+      if (error instanceof ConflictError) {
+        logger.warn("Contract already exists in SourcifyDatabase", {
+          name: verification.compilation.compilationTarget.name,
+          address: verification.address,
+        });
+        throw error;
+      }
+      logger.error("Error storing verification", {
+        error: error,
+      });
+      throw error;
+    }
+  }
+
   async storeVerification(
     verification: VerificationExport,
     jobData?: {
@@ -871,66 +1050,157 @@ export class SourcifyDatabaseService
       finishTime: Date;
     },
   ): Promise<void> {
-    const { type, verifiedContractId, oldVerifiedContractId } =
-      await super.insertOrUpdateVerification(verification);
+    const { verifiedContractId } = await this.withTransaction(
+      async (transactionPoolClient) => {
+        return await this.storeVerificationWithPoolClient(
+          transactionPoolClient,
+          verification,
+          jobData,
+        );
+      },
+    );
 
-    if (type === "insert") {
-      if (!verifiedContractId) {
-        throw new Error(
-          "VerifiedContractId undefined before inserting sourcify match",
-        );
-      }
-      await this.database.insertSourcifyMatch({
-        verified_contract_id: verifiedContractId,
-        creation_match: verification.status.creationMatch,
-        runtime_match: verification.status.runtimeMatch,
-        metadata: verification.compilation.metadata as any,
-      });
-      logger.info("Stored to SourcifyDatabase", {
-        address: verification.address,
-        chainId: verification.chainId,
-        runtimeMatch: verification.status.runtimeMatch,
-        creationMatch: verification.status.creationMatch,
-      });
-    } else if (type === "update") {
-      if (!oldVerifiedContractId) {
-        throw new Error(
-          "oldVerifiedContractId undefined before updating sourcify match",
-        );
-      }
-      await this.database.updateSourcifyMatch(
-        {
-          verified_contract_id: verifiedContractId,
-          creation_match: verification.status.creationMatch,
-          runtime_match: verification.status.runtimeMatch,
-          metadata: verification.compilation.metadata as any,
-        },
-        oldVerifiedContractId,
+    // Separate transaction because storing the verification should not fail
+    // if signatures cannot be stored
+    await this.withTransaction(async (transactionPoolClient) => {
+      await this.storeSignatures(
+        transactionPoolClient,
+        verifiedContractId,
+        verification,
       );
-      logger.info("Updated in SourcifyDatabase", {
-        address: verification.address,
-        chainId: verification.chainId,
-        runtimeMatch: verification.status.runtimeMatch,
-        creationMatch: verification.status.creationMatch,
-      });
-    } else {
-      throw new Error(
-        "insertOrUpdateVerifiedContract returned a type that doesn't exist",
-      );
+    });
+  }
+
+  async getSimilarityCandidatesByRuntimeCode(
+    runtimeBytecode: string,
+    limit: number,
+  ): Promise<SimilarityCandidate[]> {
+    await this.init();
+
+    const runtimeBuffer = bytesFromString(runtimeBytecode);
+    if (!runtimeBuffer || runtimeBuffer.length === 0) {
+      throw new Error("Invalid runtime bytecode");
     }
 
-    // Update the verification job to be successful
-    if (jobData) {
-      await this.database.updateVerificationJob({
-        id: jobData.verificationId,
-        completed_at: jobData.finishTime,
-        verified_contract_id: verifiedContractId,
-        compilation_time:
-          verification.compilation.compilationTime?.toString() || null,
-        error_code: null,
-        error_id: null,
-        error_data: null,
-      });
+    const prefixMatches =
+      await this.database.getVerifiedContractsByRuntimeCodePrefix(
+        runtimeBuffer,
+        limit,
+      );
+
+    if (prefixMatches.rows.length === 0) {
+      return [];
+    }
+
+    const results: GetSourcifyMatchByChainAddressWithPropertiesResult[] = [];
+
+    const matchRows = await Promise.all(
+      prefixMatches.rows.map(async (row) => {
+        const addressBuffer = bytesFromString(row.address);
+        if (!addressBuffer) {
+          return null;
+        }
+        const matchResult =
+          await this.database.getSourcifyMatchByChainAddressWithProperties(
+            parseInt(row.chain_id),
+            addressBuffer,
+            [
+              "std_json_input",
+              "std_json_output",
+              "fully_qualified_name",
+              "version",
+              "creation_cbor_auxdata",
+              "runtime_cbor_auxdata",
+              "metadata",
+            ],
+          );
+
+        if (matchResult.rows.length === 0) {
+          logger.warn("Prefix match found but no sourcify match for contract", {
+            chainId: row.chain_id,
+            address: row.address,
+          });
+          return null;
+        }
+
+        return matchResult.rows[0];
+      }),
+    );
+
+    for (const matchRow of matchRows) {
+      if (!matchRow) {
+        continue;
+      }
+
+      results.push(matchRow);
+    }
+
+    return results as SimilarityCandidate[];
+  }
+
+  async getPreRunCompilationFromDatabase(
+    chainId: number,
+    address: string,
+    compilers: { solc: ISolidityCompiler; vyper: IVyperCompiler },
+  ): Promise<PreRunCompilation> {
+    await this.init();
+
+    const addressBuffer = bytesFromString(address);
+    if (!addressBuffer) {
+      logger.error(
+        "getPreRunCompilationFromDatabase: invalid address provided",
+        {
+          chainId,
+          address,
+        },
+      );
+      throw new Error("Invalid address");
+    }
+
+    try {
+      const verifiedContractResult =
+        await this.database.getSourcifyMatchByChainAddressWithProperties(
+          chainId,
+          addressBuffer,
+          [
+            "std_json_input",
+            "std_json_output",
+            "runtime_cbor_auxdata",
+            "creation_cbor_auxdata",
+            "fully_qualified_name",
+            "version",
+            "metadata",
+          ],
+        );
+
+      if (verifiedContractResult.rows.length === 0) {
+        logger.error(
+          "getPreRunCompilationFromDatabase: verified contract not found",
+          {
+            chainId,
+            address,
+          },
+        );
+        throw new Error("Verified contract not found");
+      }
+
+      const candidate = verifiedContractResult
+        .rows[0] as GetSourcifyMatchByChainAddressWithPropertiesResult;
+
+      return createPreRunCompilationFromStoredCandidate(
+        compilers,
+        candidate as SimilarityCandidate,
+      );
+    } catch (error) {
+      logger.error(
+        "getPreRunCompilationFromDatabase: error extracting compilation properties",
+        {
+          error,
+          chainId,
+          address,
+        },
+      );
+      throw error;
     }
   }
 }

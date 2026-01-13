@@ -1,20 +1,22 @@
 import { FileHash } from "./util";
-import { Block, TransactionResponse, getCreateAddress } from "ethers";
+import type { Block, TransactionResponse } from "ethers";
+import { getCreateAddress } from "ethers";
 import assert from "assert";
 import { EventEmitter } from "stream";
 import {
   AuxdataStyle,
   decode as bytecodeDecode,
 } from "@ethereum-sourcify/bytecode-utils";
-import { SourcifyChain } from "@ethereum-sourcify/lib-sourcify";
+import type { SourcifyChain } from "@ethereum-sourcify/lib-sourcify";
 import logger from "./logger";
-import {
+import type {
   KnownDecentralizedStorageFetchers,
   MonitorConfig,
   SourcifyRequestOptions,
 } from "./types";
 import PendingContract from "./PendingContract";
-import { Logger } from "winston";
+import type { Logger } from "winston";
+import type SimilarityVerificationClient from "./SimilarityVerificationClient";
 
 function createsContract(tx: TransactionResponse): boolean {
   return !tx.to;
@@ -30,6 +32,7 @@ export default class ChainMonitor extends EventEmitter {
   private sourceFetchers: KnownDecentralizedStorageFetchers;
   private sourcifyServerURLs: string[];
   private sourcifyRequestOptions: SourcifyRequestOptions;
+  private similarityVerificationClient: SimilarityVerificationClient;
 
   private chainLogger: Logger;
   private startBlock?: number;
@@ -46,10 +49,12 @@ export default class ChainMonitor extends EventEmitter {
     sourcifyChain: SourcifyChain,
     sourceFetchers: KnownDecentralizedStorageFetchers,
     monitorConfig: MonitorConfig,
+    similarityVerificationClient: SimilarityVerificationClient,
   ) {
     super();
     this.sourcifyChain = sourcifyChain;
     this.sourceFetchers = sourceFetchers; // TODO: handle multipe
+    this.similarityVerificationClient = similarityVerificationClient;
     this.chainLogger = logger.child({
       moduleName: "ChainMonitor #" + this.sourcifyChain.chainId,
       chainId: this.sourcifyChain.chainId,
@@ -285,6 +290,11 @@ export default class ChainMonitor extends EventEmitter {
           address,
           origin: metadataHash.origin,
         });
+        this.similarityVerificationClient.trigger(
+          this.sourcifyChain.chainId,
+          address,
+          creatorTxHash,
+        );
         return;
       }
 
@@ -299,6 +309,11 @@ export default class ChainMonitor extends EventEmitter {
         await pendingContract.assemble();
       } catch (err: any) {
         this.chainLogger.info("Couldn't assemble contract", { address, err });
+        this.similarityVerificationClient.trigger(
+          this.sourcifyChain.chainId,
+          address,
+          creatorTxHash,
+        );
         return;
       }
       if (!this.isEmpty(pendingContract.pendingSources)) {
@@ -306,6 +321,11 @@ export default class ChainMonitor extends EventEmitter {
           address: pendingContract.address,
           pendingSources: pendingContract.pendingSources,
         });
+        this.similarityVerificationClient.trigger(
+          this.sourcifyChain.chainId,
+          address,
+          creatorTxHash,
+        );
         return;
       }
 

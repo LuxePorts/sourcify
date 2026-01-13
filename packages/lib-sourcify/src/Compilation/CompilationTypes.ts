@@ -1,13 +1,13 @@
-import {
+import type {
   SolidityJsonInput,
   SolidityOutput,
   VyperJsonInput,
   VyperOutput,
 } from '@ethereum-sourcify/compilers-types';
-import {
-  SourcifyLibError,
-  SourcifyLibErrorParameters,
-} from '../SourcifyLibError';
+import type { SourcifyLibErrorParameters } from '../SourcifyLibError';
+import { SourcifyLibError } from '../SourcifyLibError';
+import type { SolidityCompilation } from './SolidityCompilation';
+import type { VyperCompilation } from './VyperCompilation';
 
 export interface CompiledContractCborAuxdata {
   [key: string]: {
@@ -30,11 +30,13 @@ export interface CompilationTarget {
   path: string;
 }
 
-export type CompilationLanguage = 'Solidity' | 'Vyper';
+export type CompilationLanguage = 'Solidity' | 'Vyper' | 'Yul';
 
 export type CompilationErrorCode =
+  | 'invalid_language'
   | 'cannot_generate_cbor_auxdata_positions'
   | 'invalid_compiler_version'
+  | 'unsupported_compiler_version'
   | 'contract_not_found_in_compiler_output'
   | 'compiler_error'
   | 'no_compiler_output'
@@ -67,3 +69,5 @@ export interface IVyperCompiler {
     vyperJsonInput: VyperJsonInput,
   ): Promise<VyperOutput>;
 }
+
+export type AnyCompilation = SolidityCompilation | VyperCompilation;
